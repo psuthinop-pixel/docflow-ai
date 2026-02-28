@@ -1,12 +1,12 @@
 // AI OCR Receipt Reader Page
 window.ReceiptsPage = {
-    ocrRunning: false,
-    ocrDone: false,
-    currentFile: null,
-    ocrResult: null,
+  ocrRunning: false,
+  ocrDone: false,
+  currentFile: null,
+  ocrResult: null,
 
-    render(companyId) {
-        return `
+  render(companyId) {
+    return `
       <div class="page-header">
         <div class="page-header-left">
           <h1>🔍 AI OCR Receipt Reader</h1>
@@ -52,10 +52,10 @@ window.ReceiptsPage = {
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px">Click to simulate a real receipt being processed:</p>
             <div style="display:flex;flex-direction:column;gap:8px">
               ${[
-                { name: 'Starbucks_receipt.jpg', vendor: 'Starbucks Siam Paragon', amount: 450, cat: 'Food & Beverage' },
-                { name: 'AWS_invoice_feb.pdf', vendor: 'Amazon Web Services', amount: 8450, cat: 'Software & SaaS' },
-                { name: 'Grab_feb17.png', vendor: 'Grab Thailand', amount: 320, cat: 'Transport' },
-            ].map(r => `
+        { name: 'Starbucks_receipt.jpg', vendor: 'Starbucks Siam Paragon', amount: 450, cat: 'Food & Beverage' },
+        { name: 'AWS_invoice_feb.pdf', vendor: 'Amazon Web Services', amount: 8450, cat: 'Software & SaaS' },
+        { name: 'Grab_feb17.png', vendor: 'Grab Thailand', amount: 320, cat: 'Transport' },
+      ].map(r => `
               <button class="btn btn-secondary" style="justify-content:space-between;text-align:left" onclick="ReceiptsPage.loadDemo(${JSON.stringify(r).replace(/"/g, '&quot;')})">
                 <span>📄 ${r.name}</span>
                 <span class="badge badge-info">${r.cat}</span>
@@ -101,12 +101,12 @@ window.ReceiptsPage = {
         </table>
       </div>
     `;
-    },
+  },
 
-    renderOcrResult(r) {
-        r = r || this.ocrResult;
-        if (!r) return '';
-        return `
+  renderOcrResult(r) {
+    r = r || this.ocrResult;
+    if (!r) return '';
+    return `
     <div class="ocr-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
         <div style="width:36px;height:36px;background:var(--green-soft);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:1.2rem">✓</div>
@@ -138,108 +138,159 @@ window.ReceiptsPage = {
         <button class="btn btn-ghost" onclick="ReceiptsPage.discardOcr()">🗑 Discard</button>
       </div>
     </div>`;
-    },
+  },
 
-    onDragOver(e) {
-        e.preventDefault();
-        document.getElementById('uploadZone').classList.add('dragover');
-    },
-    onDragLeave() { document.getElementById('uploadZone').classList.remove('dragover'); },
-    onDrop(e) {
-        e.preventDefault();
-        document.getElementById('uploadZone').classList.remove('dragover');
-        const file = e.dataTransfer.files[0];
-        if (file) this.showFile(file);
-    },
-    onFileSelect(e) {
-        const file = e.target.files[0];
-        if (file) this.showFile(file);
-    },
-    showFile(file) {
-        this.currentFile = file;
-        document.getElementById('filePreview').style.display = 'block';
-        document.getElementById('previewName').textContent = file.name;
-        document.getElementById('previewSize').textContent = (file.size / 1024).toFixed(0) + ' KB';
-        document.getElementById('previewIcon').textContent = file.type === 'application/pdf' ? '📄' : '🖼️';
-    },
-    loadDemo(data) {
-        document.getElementById('filePreview').style.display = 'block';
-        document.getElementById('previewName').textContent = data.name;
-        document.getElementById('previewSize').textContent = '1.2 MB';
-        document.getElementById('previewIcon').textContent = data.name.endsWith('.pdf') ? '📄' : '🖼️';
-        this.demoData = data;
-        this.runOCR();
-    },
+  onDragOver(e) {
+    e.preventDefault();
+    document.getElementById('uploadZone').classList.add('dragover');
+  },
+  onDragLeave() { document.getElementById('uploadZone').classList.remove('dragover'); },
+  onDrop(e) {
+    e.preventDefault();
+    document.getElementById('uploadZone').classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) this.showFile(file);
+  },
+  onFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) this.showFile(file);
+  },
+  showFile(file) {
+    this.currentFile = file;
+    document.getElementById('filePreview').style.display = 'block';
+    document.getElementById('previewName').textContent = file.name;
+    document.getElementById('previewSize').textContent = (file.size / 1024).toFixed(0) + ' KB';
+    document.getElementById('previewIcon').textContent = file.type === 'application/pdf' ? '📄' : '🖼️';
+  },
+  loadDemo(data) {
+    document.getElementById('filePreview').style.display = 'block';
+    document.getElementById('previewName').textContent = data.name;
+    document.getElementById('previewSize').textContent = '1.2 MB';
+    document.getElementById('previewIcon').textContent = data.name.endsWith('.pdf') ? '📄' : '🖼️';
+    this.demoData = data;
+    this.runOCR();
+  },
 
-    runOCR() {
-        if (this.ocrRunning) return;
-        this.ocrRunning = true;
-        const btn = document.getElementById('ocrBtn');
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
-        const progressArea = document.getElementById('ocrProgressArea');
-        if (progressArea) progressArea.style.display = 'block';
-        const steps = [
-            { p: 15, msg: 'Preprocessing image...' },
-            { p: 35, msg: 'Detecting text regions...' },
-            { p: 55, msg: 'Extracting key fields with GPT-4o Vision...' },
-            { p: 75, msg: 'Auto-categorizing expense...' },
-            { p: 90, msg: 'Validating extracted data...' },
-            { p: 100, msg: '✅ Extraction complete!' },
-        ];
-        let i = 0;
-        const iv = setInterval(() => {
-            if (i >= steps.length) {
-                clearInterval(iv);
-                this.ocrRunning = false;
-                this.ocrDone = true;
-                const demo = this.demoData || { vendor: 'Unknown Vendor', amount: 0, cat: 'Other' };
-                this.ocrResult = {
-                    vendor: demo.vendor || 'Starbucks Siam Paragon',
-                    date: '2026-02-22',
-                    amount: demo.amount || 450,
-                    tax: Math.round((demo.amount || 450) * 0.07),
-                    category: demo.cat || demo.category || 'Food & Beverage',
-                    companyId: 'c1',
-                    confidence: 97,
-                    notes: ''
-                };
-                document.getElementById('ocrResultPanel').style.display = 'block';
-                document.getElementById('ocrResultPanel').innerHTML = this.renderOcrResult();
-                document.getElementById('ocrPlaceholder').style.display = 'none';
-                if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
-                return;
-            }
-            const prog = document.getElementById('ocrProgress');
-            const stat = document.getElementById('ocrStatusText');
-            if (prog) prog.style.width = steps[i].p + '%';
-            if (stat) stat.textContent = steps[i].msg;
-            i++;
-        }, 450);
-    },
+  runOCR() {
+    if (this.ocrRunning) return;
+    this.ocrRunning = true;
+    const btn = document.getElementById('ocrBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
+    const progressArea = document.getElementById('ocrProgressArea');
+    if (progressArea) progressArea.style.display = 'block';
+    const steps = [
+      { p: 15, msg: 'Preprocessing image...' },
+      { p: 35, msg: 'Detecting text regions...' },
+      { p: 55, msg: 'Extracting key fields with GPT-4o Vision...' },
+      { p: 75, msg: 'Auto-categorizing expense...' },
+      { p: 90, msg: 'Validating extracted data...' },
+      { p: 100, msg: '✅ Extraction complete!' },
+    ];
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i >= steps.length) {
+        clearInterval(iv);
+        this.ocrRunning = false;
+        this.ocrDone = true;
+        const demo = this.demoData || { vendor: 'Unknown Vendor', amount: 0, cat: 'Other' };
+        this.ocrResult = {
+          vendor: demo.vendor || 'Starbucks Siam Paragon',
+          date: '2026-02-22',
+          amount: demo.amount || 450,
+          tax: Math.round((demo.amount || 450) * 0.07),
+          category: demo.cat || demo.category || 'Food & Beverage',
+          companyId: 'c1',
+          confidence: 97,
+          notes: ''
+        };
+        document.getElementById('ocrResultPanel').style.display = 'block';
+        document.getElementById('ocrResultPanel').innerHTML = this.renderOcrResult();
+        document.getElementById('ocrPlaceholder').style.display = 'none';
+        if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
+        return;
+      }
+      const prog = document.getElementById('ocrProgress');
+      const stat = document.getElementById('ocrStatusText');
+      if (prog) prog.style.width = steps[i].p + '%';
+      if (stat) stat.textContent = steps[i].msg;
+      i++;
+    }, 450);
+  },
 
-    confirmExpense() {
-        if (this.ocrResult) {
-            MockData.expenses.unshift({
-                id: 'e_new_' + Date.now(),
-                companyId: this.ocrResult.companyId,
-                vendor: this.ocrResult.vendor,
-                date: this.ocrResult.date,
-                amount: this.ocrResult.amount,
-                currency: 'THB',
-                category: this.ocrResult.category,
-                status: 'confirmed',
-                source: 'upload',
-                tax: this.ocrResult.tax,
-            });
-            MockData.activity.unshift({ type: 'ocr', icon: '🔍', text: `OCR processed: ${this.ocrResult.vendor} — ฿${this.ocrResult.amount.toLocaleString()}`, time: 'Just now', company: this.ocrResult.companyId });
-        }
-        this.ocrDone = false; this.ocrResult = null; this.demoData = null;
-        App.showToast('success', '✅ Receipt saved to expense database!');
-        App.navigate('receipts');
-    },
+  async confirmExpense() {
+    if (!this.ocrResult) return;
 
-    discardOcr() {
-        this.ocrDone = false; this.ocrResult = null;
-        App.navigate('receipts');
+    // Collect current data from form fields (in case user edited them)
+    const panel = document.querySelector('.ocr-panel');
+    if (!panel) return;
+
+    const inputs = panel.querySelectorAll('.ocr-field-input');
+    const vendor = inputs[0].value;
+    const date = inputs[1].value;
+    const amountStr = inputs[2].value.replace('฿', '').replace(/,/g, '');
+    const taxStr = inputs[3].value.replace('฿', '').replace(/,/g, '');
+    const category = inputs[4].value;
+    const companyId = inputs[5].value;
+
+    const amount = parseFloat(amountStr) || 0;
+    const tax = parseFloat(taxStr) || 0;
+
+    // Map companyId to company name for the backend
+    const company = MockData.companies.find(c => c.id === companyId);
+    const companyName = company ? company.name : 'Unknown Company';
+
+    // Construct payload for backend (FastAPI expects vendor_name, date, amount, tax, category, company, etc.)
+    const payload = {
+      vendor_name: vendor,
+      date: new Date(date).toISOString(),
+      amount: amount,
+      tax: tax,
+      category: category,
+      company: companyName,
+      notes: inputs[6].value || '',
+      file_dir: `/uploads/expenses/${date}_${vendor.toLowerCase().replace(/\s+/g, '_')}.pdf`
+    };
+
+    try {
+      // Call API Service
+      await window.ExpenseApi.createExpense(payload);
+
+      // Success: Update UI and MockData (for demo consistency)
+      MockData.expenses.unshift({
+        id: 'e_new_' + Date.now(),
+        companyId: companyId,
+        vendor: vendor,
+        date: date,
+        amount: amount,
+        currency: 'THB',
+        category: category,
+        status: 'confirmed',
+        source: 'upload',
+        tax: tax,
+      });
+
+      MockData.activity.unshift({
+        type: 'ocr',
+        icon: '🔍',
+        text: `OCR processed: ${vendor} — ฿${amount.toLocaleString()}`,
+        time: 'Just now',
+        company: companyId
+      });
+
+      App.showToast('success', '✅ Receipt saved to database!');
+      this.ocrDone = false;
+      this.ocrResult = null;
+      this.demoData = null;
+      App.navigate('receipts');
+
+    } catch (error) {
+      console.error('Save failed:', error);
+      App.showToast('error', '❌ Could not save to backend. Please check connection.');
     }
+  },
+
+  discardOcr() {
+    this.ocrDone = false; this.ocrResult = null;
+    App.navigate('receipts');
+  }
 };

@@ -75,6 +75,10 @@
                 Live Sync
             </div>
 
+            <div id="userPanel" style="display:flex;align-items:center;gap:12px">
+                <!-- User panel injected by app.js -->
+            </div>
+
             <button class="btn btn-secondary btn-icon" id="themeToggle" onclick="App.toggleTheme()" title="Toggle Theme"
                 style="font-size: 1.1rem; padding: 6px 10px;">
                 <span id="themeIcon">🌙</span>
@@ -101,6 +105,9 @@
 
     <!-- ─── Scripts (order matters) ─── -->
     <script src="data/mock-data.js"></script>
+    <script src="api/auth.js"></script>
+    <script src="api/expenses.js"></script>
+    <script src="pages/login.js"></script>
     <script src="pages/dashboard.js"></script>
     <script src="pages/receipts.js"></script>
     <script src="pages/email.js"></script>

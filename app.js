@@ -1,13 +1,31 @@
 // DocFlow AI — App Router & State Manager
+window.docflow_url = 'http://localhost:8000'; // Backend API URL
 window.App = {
     currentPage: 'dashboard',
     currentCompany: 'all',
     currentTheme: localStorage.getItem('docflow-theme') || 'dark',
+    currentUser: null,
 
-    init() {
+    async init() {
         this.applyTheme();
-        this.updateCompanySelector();
-        this.navigate('dashboard');
+
+        // Check authentication
+        const token = localStorage.getItem('docflow-auth');
+        if (token) {
+            try {
+                this.currentUser = await AuthApi.getMe();
+                this.updateUserPanel();
+                this.updateCompanySelector();
+                this.navigate('dashboard');
+            } catch (error) {
+                console.error('Auth init failed:', error);
+                localStorage.removeItem('docflow-auth');
+                this.navigate('login');
+            }
+        } else {
+            this.navigate('login');
+        }
+
         document.getElementById('companySwitcher').addEventListener('change', (e) => {
             this.currentCompany = e.target.value;
             this.updateCompanyDot();
@@ -28,11 +46,32 @@ window.App = {
     },
 
     navigate(page) {
+        // Auth Guard
+        const token = localStorage.getItem('docflow-auth');
+        if (page !== 'login' && !token) {
+            page = 'login';
+        } else if (page === 'login' && token) {
+            page = 'dashboard';
+        }
+
         this.currentPage = page;
+
+        // Hide sidebar and topbar on login page
+        const isLogin = page === 'login';
+        document.querySelector('.sidebar').style.display = isLogin ? 'none' : 'flex';
+        document.querySelector('.topbar').style.display = isLogin ? 'none' : 'flex';
+        document.querySelector('.app-layout').style.gridTemplateColumns = isLogin ? '1fr' : 'var(--sidebar-w) 1fr';
+
+        if (isLogin) {
+            document.getElementById('mainContent').innerHTML = LoginPage.render();
+            return;
+        }
+
         // Update nav active state
         document.querySelectorAll('.nav-item').forEach(el => {
             el.classList.toggle('active', el.dataset.page === page);
         });
+
         // Update topbar title
         const titles = {
             dashboard: { title: 'Dashboard', sub: 'Overview' },
@@ -61,31 +100,57 @@ window.App = {
             reports: () => ReportsPage.render(companyId),
             settings: () => SettingsPage.render(companyId),
         };
+
         content.innerHTML = '';
         content.style.opacity = '0';
         setTimeout(() => {
             content.innerHTML = (pageRenderers[page] || pageRenderers.dashboard)();
             content.style.opacity = '1';
-            // Init charts after DOM update
             if (page === 'reports') setTimeout(() => ReportsPage.initCharts(), 100);
         }, 80);
     },
 
+    updateUserPanel() {
+        if (!this.currentUser) return;
+        const panel = document.getElementById('userPanel');
+        panel.innerHTML = `
+            <div class="user-panel">
+                <div class="topbar-avatar">${this.currentUser.name.charAt(0)}</div>
+                <div class="user-info">
+                    <div class="user-name">${this.currentUser.name}</div>
+                    <div class="user-role">${this.currentUser.role}</div>
+                </div>
+                <button class="btn btn-ghost btn-logout" onclick="App.handleLogout()" title="Logout">🚪</button>
+            </div>
+        `;
+    },
+
+    async handleLogout() {
+        try {
+            await AuthApi.logout();
+        } catch (error) {
+            console.error('Logout error:', error);
+        }
+        this.currentUser = null;
+        this.navigate('login');
+    },
+
     updateCompanySelector() {
         const sel = document.getElementById('companySwitcher');
+        if (!sel) return;
         sel.innerHTML = `<option value="all">All Companies</option>` +
             MockData.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     },
 
     updateCompanyDot() {
         const dot = document.getElementById('companyDot');
+        if (!dot) return;
         if (this.currentCompany === 'all') {
             dot.style.background = 'var(--accent)';
         } else {
             const comp = MockData.companies.find(c => c.id === this.currentCompany);
             if (comp) dot.style.background = comp.color;
         }
-        // Update sidebar badges
         this.updateSidebarBadges();
     },
 
@@ -111,6 +176,8 @@ window.App = {
         }, 3500);
     }
 };
+
+document.addEventListener('DOMContentLoaded', () => App.init());
 
 // Page nav shortcuts
 window.Pages = {
