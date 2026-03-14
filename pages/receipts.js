@@ -9,9 +9,9 @@ window.ReceiptsPage = {
 
   render(companyId) {
     if (!this.initialized || this.lastCompanyId !== companyId) {
-        this.initialized = true;
-        this.lastCompanyId = companyId;
-        this.loadExpenses(companyId);
+      this.initialized = true;
+      this.lastCompanyId = companyId;
+      this.loadExpenses(companyId);
     }
 
     return `
@@ -106,17 +106,28 @@ window.ReceiptsPage = {
     return `
         <table class="data-table">
           <thead><tr>
-            <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Status</th>
+            <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
           <tbody>
-            ${this.expenses.map(e => `
+            ${this.expenses.map((e, idx) => {
+              const hasTax = e.tax_amount && parseFloat(e.tax_amount) > 0;
+              return `
             <tr>
               <td>${e.vendor_name}</td>
               <td>${new Date(e.date).toLocaleDateString()}</td>
               <td style="font-weight:700">฿${parseFloat(e.total).toLocaleString()}</td>
               <td><span class="badge badge-info">${e.category}</span></td>
+              <td>
+                ${hasTax 
+                  ? `<span style="font-size:0.8rem;color:var(--green)">฿${parseFloat(e.tax_amount).toLocaleString()} VAT</span>` 
+                  : `<span class="badge badge-error" style="background:rgba(239, 68, 68, 0.1);color:rgb(239, 68, 68);border:1px solid rgba(239, 68, 68, 0.2)">⚠️ No Tax</span>`}
+              </td>
               <td><span class="badge badge-${e.status}">${e.status}</span></td>
-            </tr>`).join('')}
+              <td style="text-align:right">
+                <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">✏️ Edit</button>
+              </td>
+            </tr>`;
+            }).join('')}
           </tbody>
         </table>
     `;
@@ -125,34 +136,41 @@ window.ReceiptsPage = {
   async loadExpenses(companyId) {
     this.loading = true;
     try {
-        this.expenses = await window.ExpenseApi.listExpenses(companyId);
-        const container = document.getElementById('expensesTableContainer');
-        if (container) container.innerHTML = this.renderExpensesTable();
+      this.expenses = await window.ExpenseApi.listExpenses(companyId);
+      const container = document.getElementById('expensesTableContainer');
+      if (container) container.innerHTML = this.renderExpensesTable();
     } catch (error) {
-        console.error('Failed to load expenses:', error);
+      console.error('Failed to load expenses:', error);
     } finally {
-        this.loading = false;
-        const container = document.getElementById('expensesTableContainer');
-        if (container) container.innerHTML = this.renderExpensesTable();
+      this.loading = false;
+      const container = document.getElementById('expensesTableContainer');
+      if (container) container.innerHTML = this.renderExpensesTable();
     }
   },
 
   renderOcrResult(r) {
     r = r || this.ocrResult;
     if (!r) return '';
+    const isEditing = !!r.id;
     return `
     <div class="ocr-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-        <div style="width:36px;height:36px;background:var(--green-soft);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:1.2rem">✓</div>
-        <div>
-          <div style="font-weight:700">OCR Extraction Complete</div>
-          <div style="font-size:0.78rem;color:var(--text-secondary)">Confidence: ${r.confidence}% · Review and confirm</div>
+        <div style="width:36px;height:36px;background:${isEditing ? 'var(--blue-soft)' : 'var(--green-soft)'};border-radius:8px;display:flex;align-items:center;justify-content:center;color:${isEditing ? 'var(--indigo)' : 'var(--green)'};font-size:1.2rem">
+          ${isEditing ? '✏️' : '✓'}
         </div>
-        <span class="badge badge-confirmed" style="margin-left:auto">AI Extracted</span>
+        <div>
+          <div style="font-weight:700">${isEditing ? 'Edit Expense' : 'OCR Extraction Complete'}</div>
+          <div style="font-size:0.78rem;color:var(--text-secondary)">
+            ${isEditing ? 'Update details below' : `Confidence: ${r.confidence}% · Review and confirm`}
+          </div>
+        </div>
+        <span class="badge ${isEditing ? 'badge-info' : 'badge-confirmed'}" style="margin-left:auto">
+          ${isEditing ? 'Existing Record' : 'AI Extracted'}
+        </span>
       </div>
       <div class="ocr-field"><div class="ocr-field-label">🏪 Vendor / Store</div><input class="ocr-field-input" value="${r.vendor}"></div>
       <div class="ocr-field"><div class="ocr-field-label">📅 Date</div><input class="ocr-field-input" type="date" value="${r.date}"></div>
-      <div class="ocr-field"><div class="ocr-field-label">💰 Amount</div><input class="ocr-field-input" value="฿${r.amount}"></div>
+      <div class="ocr-field"><div class="ocr-field-label">💰 Total Amount</div><input class="ocr-field-input" value="฿${r.amount}"></div>
       <div class="ocr-field"><div class="ocr-field-label">🧾 Tax (VAT)</div><input class="ocr-field-input" value="฿${r.tax}"></div>
       <div class="ocr-field">
         <div class="ocr-field-label">🏷 Category</div>
@@ -165,11 +183,20 @@ window.ReceiptsPage = {
         <input class="ocr-field-input" value="${App.currentCompany}" readonly>
       </div>
       <div class="ocr-field" style="align-items: flex-start;">
-        <div class="ocr-field-label" style="margin-top: 8px;">📝 Notes / Raw Text</div>
+        <div class="ocr-field-label" style="margin-top: 8px;">📝 Notes</div>
         <textarea class="ocr-field-input" style="height: 120px; resize: none; font-family: monospace; font-size: 0.75rem;" placeholder="Raw OCR text...">${r.notes || ''}</textarea>
       </div>
+      <div class="ocr-field" style="flex-direction:row;align-items:center;padding:12px;background:var(--bg-base);border-radius:8px;margin-top:10px;border:1px dashed var(--border)">
+        <div style="flex:1">
+            <div style="font-weight:700;font-size:0.85rem">🚫 Disable Expense</div>
+            <div style="font-size:0.75rem;color:var(--text-secondary)">Ignore in dashboard and reports</div>
+        </div>
+        <input type="checkbox" id="disableExpenseToggle" style="width:20px;height:20px;cursor:pointer" ${r.status === 'disabled' ? 'checked' : ''}>
+      </div>
       <div style="display:flex;gap:10px;margin-top:20px">
-        <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="ReceiptsPage.confirmExpense()">✅ Confirm & Save</button>
+        <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="ReceiptsPage.confirmExpense()">
+          ${isEditing ? '💾 Update Expense' : '✅ Confirm & Save'}
+        </button>
         <button class="btn btn-ghost" onclick="ReceiptsPage.discardOcr()">🗑 Discard</button>
       </div>
     </div>`;
@@ -206,6 +233,32 @@ window.ReceiptsPage = {
     this.runOCR();
   },
 
+  viewExpense(idx) {
+    const e = this.expenses[idx];
+    const expenseId = e.id || e._id; // Handle both id and MongoDB _id
+    this.ocrResult = {
+      id: expenseId,
+      vendor: e.vendor_name,
+      date: e.date && e.date.includes('T') ? e.date.split('T')[0] : e.date,
+      amount: e.total,
+      tax: e.tax_amount || 0,
+      category: e.category,
+      companyId: e.organization_id,
+      status: e.status, // Preserve status (important for 'disabled')
+      confidence: 100,
+      notes: e.notes
+    };
+    this.ocrDone = true;
+    const panel = document.getElementById('ocrResultPanel');
+    if (panel) {
+      panel.style.display = 'block';
+      panel.innerHTML = this.renderOcrResult();
+    }
+    const placeholder = document.getElementById('ocrPlaceholder');
+    if (placeholder) placeholder.style.display = 'none';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  },
+
   async runOCR() {
     if (this.ocrRunning) return;
     this.ocrRunning = true;
@@ -213,7 +266,7 @@ window.ReceiptsPage = {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
     const progressArea = document.getElementById('ocrProgressArea');
     if (progressArea) progressArea.style.display = 'block';
-    
+
     const prog = document.getElementById('ocrProgress');
     const stat = document.getElementById('ocrStatusText');
 
@@ -222,100 +275,103 @@ window.ReceiptsPage = {
     let confidence = 97;
 
     try {
-        if (this.currentFile && this.currentFile.type !== 'application/pdf') {
-            stat.textContent = 'Reading image file...';
-            prog.style.width = '10%';
+      if (this.currentFile && this.currentFile.type !== 'application/pdf') {
+        stat.textContent = 'Reading image file...';
+        prog.style.width = '10%';
 
-            const imageData = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = e => reject(new Error('Failed to read file'));
-                reader.readAsDataURL(this.currentFile);
-            });
+        const imageData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => resolve(e.target.result);
+          reader.onerror = e => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(this.currentFile);
+        });
 
-            stat.textContent = 'Initializing Tesseract...';
-            prog.style.width = '20%';
+        stat.textContent = 'Initializing Tesseract...';
+        prog.style.width = '20%';
 
-            worker = await Tesseract.createWorker('eng', 1, {
-              workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-              langPath: 'https://tessdata.projectnaptha.com/4.0.0_best',
-              corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
-              logger: m => {
-                  if (m.status === 'recognizing text') {
-                      const p = 20 + Math.round(m.progress * 70);
-                      prog.style.width = p + '%';
-                      stat.textContent = `Extracting text... (${p}%)`;
-                  }
-              }
-            });
-
-            const result = await worker.recognize(imageData);
-            ocrText = result.data.text;
-            confidence = Math.round(result.data.confidence);
-            await worker.terminate();
-        } else {
-            // Logic for Demo or PDF (simulated real logic step since no image/direct PDF support)
-            stat.textContent = 'Analyzing document...';
-            prog.style.width = '30%';
-            await new Promise(r => setTimeout(r, 600));
-            prog.style.width = '60%';
-            stat.textContent = 'Extracting fields...';
-            await new Promise(r => setTimeout(r, 600));
-            ocrText = this.demoData 
-                ? `DEMO RECEIPT: ${this.demoData.name}\nVendor: ${this.demoData.vendor}\nAmount: ${this.demoData.amount}`
-                : "PDF Content: Sample text extracted from PDF document.";
-        }
-
-        let extractedVendor = 'Starbucks Siam Paragon';
-        let extractedAmount = 450;
-        let extractedCat = 'Food & Beverage';
-
-        if (this.demoData) {
-            extractedVendor = this.demoData.vendor || extractedVendor;
-            extractedAmount = this.demoData.amount || extractedAmount;
-            extractedCat = this.demoData.cat || this.demoData.category || extractedCat;
-        } else if (ocrText) {
-            // Real extraction logic for uploaded files
-            const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
-            if (lines.length > 0) extractedVendor = lines[0]; // Assume top line is vendor
-            
-            const matches = ocrText.match(/(\d{1,3}(,\d{3})*(\.\d{2})?)/g);
-            if (matches) {
-                const nums = matches.map(m => parseFloat(m.replace(/,/g, ''))).filter(n => n > 10);
-                if (nums.length > 0) extractedAmount = Math.max(...nums);
+        worker = await Tesseract.createWorker('eng', 1, {
+          workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+          langPath: 'https://tessdata.projectnaptha.com/4.0.0_best',
+          corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              const p = 20 + Math.round(m.progress * 70);
+              prog.style.width = p + '%';
+              stat.textContent = `Extracting text... (${p}%)`;
             }
+          }
+        });
+
+        const result = await worker.recognize(imageData);
+        ocrText = result.data.text;
+        confidence = Math.round(result.data.confidence);
+        await worker.terminate();
+      } else {
+        // Logic for Demo or PDF (simulated real logic step since no image/direct PDF support)
+        stat.textContent = 'Analyzing document...';
+        prog.style.width = '30%';
+        await new Promise(r => setTimeout(r, 600));
+        prog.style.width = '60%';
+        stat.textContent = 'Extracting fields...';
+        await new Promise(r => setTimeout(r, 600));
+        ocrText = this.demoData
+          ? `DEMO RECEIPT: ${this.demoData.name}\nVendor: ${this.demoData.vendor}\nAmount: ${this.demoData.amount}`
+          : "PDF Content: Sample text extracted from PDF document.";
+      }
+
+      let extractedVendor = 'Starbucks Siam Paragon';
+      let extractedAmount = 450;
+      let extractedCat = 'Food & Beverage';
+
+      if (this.demoData) {
+        extractedVendor = this.demoData.vendor || extractedVendor;
+        extractedAmount = this.demoData.amount || extractedAmount;
+        extractedCat = this.demoData.cat || this.demoData.category || extractedCat;
+      } else if (ocrText) {
+        // Real extraction logic for uploaded files
+        const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+        if (lines.length > 0) extractedVendor = lines[0]; // Assume top line is vendor
+
+        const matches = ocrText.match(/(\d{1,3}(,\d{3})*(\.\d{2})?)/g);
+        if (matches) {
+          const nums = matches.map(m => parseFloat(m.replace(/,/g, ''))).filter(n => n > 10);
+          if (nums.length > 0) extractedAmount = Math.max(...nums);
         }
+      }
 
-        this.ocrResult = {
-          vendor: extractedVendor,
-          date: '2026-02-22',
-          amount: extractedAmount,
-          tax: Math.round(extractedAmount * 0.07),
-          category: extractedCat,
-          companyId: App.currentCompany,
-          confidence: 97,
-          notes: ocrText
-        };
+      const existingId = this.ocrResult ? (this.ocrResult.id || this.ocrResult._id) : null;
 
-        prog.style.width = '100%';
-        stat.textContent = '✅ Extraction complete!';
-        
-        setTimeout(() => {
-            this.ocrRunning = false;
-            this.ocrDone = true;
-            document.getElementById('ocrResultPanel').style.display = 'block';
-            document.getElementById('ocrResultPanel').innerHTML = this.renderOcrResult();
-            document.getElementById('ocrPlaceholder').style.display = 'none';
-            if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
-        }, 500);
+      this.ocrResult = {
+        id: existingId,
+        vendor: extractedVendor,
+        date: '2026-02-22',
+        amount: extractedAmount,
+        tax: Math.round(extractedAmount * 0.07),
+        category: extractedCat,
+        companyId: App.currentCompany,
+        confidence: 97,
+        notes: ocrText
+      };
+
+      prog.style.width = '100%';
+      stat.textContent = '✅ Extraction complete!';
+
+      setTimeout(() => {
+        this.ocrRunning = false;
+        this.ocrDone = true;
+        document.getElementById('ocrResultPanel').style.display = 'block';
+        document.getElementById('ocrResultPanel').innerHTML = this.renderOcrResult();
+        document.getElementById('ocrPlaceholder').style.display = 'none';
+        if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
+      }, 500);
 
     } catch (error) {
-        console.error('OCR Error:', error);
-        stat.textContent = '❌ OCR Failed: ' + error.message;
-        if (worker) await worker.terminate();
-        this.ocrRunning = false;
-        if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
-        App.showToast('error', 'OCR failed: ' + error.message);
+      console.error('OCR Error:', error);
+      stat.textContent = '❌ OCR Failed: ' + error.message;
+      if (worker) await worker.terminate();
+      this.ocrRunning = false;
+      if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
+      App.showToast('error', 'OCR failed: ' + error.message);
     }
   },
 
@@ -325,6 +381,9 @@ window.ReceiptsPage = {
     const panel = document.querySelector('.ocr-panel');
     if (!panel) return;
 
+    const isUpdate = !!(this.ocrResult && (this.ocrResult.id || this.ocrResult._id));
+    const targetId = isUpdate ? (this.ocrResult.id || this.ocrResult._id) : null;
+
     const inputs = panel.querySelectorAll('.ocr-field-input');
     const vendor = inputs[0].value;
     const date = inputs[1].value;
@@ -333,15 +392,17 @@ window.ReceiptsPage = {
     const category = inputs[4].value;
     const organizationId = inputs[5].value;
     const notes = inputs[6].value;
+    const isDisabled = document.getElementById('disableExpenseToggle')?.checked;
 
     const total = amountStr;
 
     const payload = {
       organization_id: organizationId,
-      status: 'confirmed',
+      status: isDisabled ? 'disabled' : 'confirmed',
       vendor_name: vendor,
       date: new Date(date).toISOString(),
       total: total,
+      tax_amount: parseFloat(taxStr) || 0,
       currency: 'THB',
       category: category,
       notes: notes,
@@ -350,9 +411,16 @@ window.ReceiptsPage = {
     };
 
     try {
-      await window.ExpenseApi.createExpense(payload);
+      if (isUpdate) {
+        // Remove organization_id for updates as the backend model doesn't accept it
+        const { organization_id, ...updatePayload } = payload;
+        await window.ExpenseApi.updateExpense(targetId, updatePayload);
+        App.showToast('success', '✅ Expense updated!');
+      } else {
+        await window.ExpenseApi.createExpense(payload);
+        App.showToast('success', '✅ Receipt saved to database!');
+      }
 
-      App.showToast('success', '✅ Receipt saved to database!');
       this.ocrDone = false;
       this.ocrResult = null;
       this.demoData = null;
@@ -360,8 +428,8 @@ window.ReceiptsPage = {
       App.navigate('receipts');
 
     } catch (error) {
-      console.error('Save failed:', error);
-      App.showToast('error', '❌ Could not save: ' + error.message);
+      console.error('Action failed:', error);
+      App.showToast('error', '❌ Could not complete: ' + error.message);
     }
   },
 

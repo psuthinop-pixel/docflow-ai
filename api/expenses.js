@@ -53,5 +53,31 @@ window.ExpenseApi = {
         }
 
         return await response.json();
+    },
+
+    /**
+     * Update an existing expense
+     * @param {string} expenseId - The ID of the expense to update
+     * @param {Object} payload - The updated expense data
+     */
+    async updateExpense(expenseId, payload) {
+        const token = localStorage.getItem('docflow-auth');
+        if (!token) throw new Error('No auth token found');
+
+        const response = await fetch(`${window.docflow_url}/expenses/${expenseId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(error.detail || 'Failed to update expense');
+        }
+
+        return await response.json();
     }
 };
