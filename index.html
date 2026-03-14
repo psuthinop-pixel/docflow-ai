@@ -9,6 +9,7 @@
         content="AI-powered receipt reader, email scraper, LINE chatbot, Google Drive & Sheets integration for multi-company expense management.">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 
 <body>
@@ -75,7 +76,7 @@
                 Live Sync
             </div>
 
-            <div id="userPanel" style="display:flex;align-items:center;gap:12px">
+            <div id="userPanel" style="display:flex;align-items:center;position:relative">
                 <!-- User panel injected by app.js -->
             </div>
 
@@ -83,7 +84,6 @@
                 style="font-size: 1.1rem; padding: 6px 10px;">
                 <span id="themeIcon">🌙</span>
             </button>
-            <div class="topbar-avatar" title="Account">A</div>
         </header>
 
         <!-- ─── Main Content ─── -->
@@ -107,7 +107,9 @@
     <script src="data/mock-data.js"></script>
     <script src="api/auth.js"></script>
     <script src="api/expenses.js"></script>
+    <script src="api/organizations.js"></script>
     <script src="pages/login.js"></script>
+    <script src="pages/select-organization.js"></script>
     <script src="pages/dashboard.js"></script>
     <script src="pages/receipts.js"></script>
     <script src="pages/email.js"></script>

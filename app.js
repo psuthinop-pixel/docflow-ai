@@ -2,9 +2,10 @@
 window.docflow_url = 'http://localhost:8000'; // Backend API URL
 window.App = {
     currentPage: 'dashboard',
-    currentCompany: 'all',
+    currentCompany: null,
     currentTheme: localStorage.getItem('docflow-theme') || 'dark',
     currentUser: null,
+    organizations: [],
 
     async init() {
         this.applyTheme();
@@ -14,23 +15,48 @@ window.App = {
         if (token) {
             try {
                 this.currentUser = await AuthApi.getMe();
-                this.updateUserPanel();
-                this.updateCompanySelector();
-                this.navigate('dashboard');
+
+                // Fetch organizations
+                this.organizations = await OrganizationApi.list();
+
+                // Check if organization is selected
+                const savedCompany = localStorage.getItem('docflow-company');
+
+                // Verify saved company exists in user's organizations
+                const companyExists = savedCompany && this.organizations.some(o => (o._id || o.id) === savedCompany);
+
+                if (companyExists) {
+                    this.currentCompany = savedCompany;
+                    this.navigate('dashboard');
+                } else {
+                    localStorage.removeItem('docflow-company');
+                    this.navigate('select-organization');
+                }
             } catch (error) {
                 console.error('Auth init failed:', error);
                 localStorage.removeItem('docflow-auth');
+                localStorage.removeItem('docflow-company');
                 this.navigate('login');
             }
         } else {
             this.navigate('login');
         }
 
-        document.getElementById('companySwitcher').addEventListener('change', (e) => {
-            this.currentCompany = e.target.value;
-            this.updateCompanyDot();
-            this.navigate(this.currentPage);
-        });
+        const switcher = document.getElementById('companySwitcher');
+        if (switcher) {
+            switcher.addEventListener('change', (e) => {
+                if (e.target.value === 'manage') {
+                    this.navigate('select-organization');
+                    // We'll update the selector again to remove the "manage" selection visually if they come back
+                    this.updateCompanySelector();
+                    return;
+                }
+                this.currentCompany = e.target.value;
+                localStorage.setItem('docflow-company', this.currentCompany);
+                this.updateCompanyDot();
+                this.navigate(this.currentPage);
+            });
+        }
     },
 
     toggleTheme() {
@@ -48,22 +74,55 @@ window.App = {
     navigate(page) {
         // Auth Guard
         const token = localStorage.getItem('docflow-auth');
+        const savedCompany = localStorage.getItem('docflow-company');
+
         if (page !== 'login' && !token) {
             page = 'login';
-        } else if (page === 'login' && token) {
-            page = 'dashboard';
+        } else if (token) {
+            if (!savedCompany && page !== 'logout') {
+                page = 'select-organization';
+            } else if (page === 'login') {
+                // If they have a company and go to login, send to dashboard
+                if (savedCompany) page = 'dashboard';
+                else page = 'select-organization';
+            }
+            // Removed the redirect from select-organization to dashboard if savedCompany exists,
+            // to allow "Manage Organizations" to function.
         }
 
         this.currentPage = page;
 
-        // Hide sidebar and topbar on login page
-        const isLogin = page === 'login';
-        document.querySelector('.sidebar').style.display = isLogin ? 'none' : 'flex';
-        document.querySelector('.topbar').style.display = isLogin ? 'none' : 'flex';
-        document.querySelector('.app-layout').style.gridTemplateColumns = isLogin ? '1fr' : 'var(--sidebar-w) 1fr';
+        // Ensure user UI is up to date if we have a user
+        if (this.currentUser) {
+            this.updateUserPanel();
+            this.updateCompanySelector();
+            this.updateCompanyDot();
+        }
 
-        if (isLogin) {
-            document.getElementById('mainContent').innerHTML = LoginPage.render();
+        // Hide sidebar and topbar on login & select-organization pages
+        const isAuthPage = page === 'login' || page === 'select-organization';
+        const sidebar = document.querySelector('.sidebar');
+        const topbar = document.querySelector('.topbar');
+        const layout = document.querySelector('.app-layout');
+
+        if (sidebar) sidebar.style.display = isAuthPage ? 'none' : 'flex';
+        if (topbar) topbar.style.display = isAuthPage ? 'none' : 'flex';
+        if (layout) layout.style.gridTemplateColumns = isAuthPage ? '1fr' : 'var(--sidebar-w) 1fr';
+
+        const content = document.getElementById('mainContent');
+        if (!content) return;
+
+        // Reset opacity for direct page swaps
+        content.style.opacity = '1';
+
+        if (page === 'login') {
+            content.innerHTML = LoginPage.render();
+            return;
+        }
+
+        if (page === 'select-organization') {
+            content.innerHTML = SelectOrganizationPage.render();
+            setTimeout(() => SelectOrganizationPage.loadOrganizations(), 50);
             return;
         }
 
@@ -86,19 +145,16 @@ window.App = {
         const t = titles[page] || titles.dashboard;
         document.getElementById('topbarTitle').innerHTML = `${t.title} <span>/ ${t.sub}</span>`;
 
-        const content = document.getElementById('mainContent');
-        const companyId = this.currentCompany;
-
         // Render page
         const pageRenderers = {
-            dashboard: () => DashboardPage.render(companyId),
-            receipts: () => ReceiptsPage.render(companyId),
-            email: () => EmailPage.render(companyId),
-            line: () => LinePage.render(companyId),
-            drive: () => DrivePage.render(companyId),
-            sheets: () => SheetsPage.render(companyId),
-            reports: () => ReportsPage.render(companyId),
-            settings: () => SettingsPage.render(companyId),
+            dashboard: () => DashboardPage.render(this.currentCompany),
+            receipts: () => ReceiptsPage.render(this.currentCompany),
+            email: () => EmailPage.render(this.currentCompany),
+            line: () => LinePage.render(this.currentCompany),
+            drive: () => DrivePage.render(this.currentCompany),
+            sheets: () => SheetsPage.render(this.currentCompany),
+            reports: () => ReportsPage.render(this.currentCompany),
+            settings: () => SettingsPage.render(this.currentCompany),
         };
 
         content.innerHTML = '';
@@ -113,43 +169,102 @@ window.App = {
     updateUserPanel() {
         if (!this.currentUser) return;
         const panel = document.getElementById('userPanel');
+        if (!panel) return;
         panel.innerHTML = `
-            <div class="user-panel">
+            <div class="user-dropdown-overlay" id="userDropdownOverlay" onclick="App.closeUserDropdown()"></div>
+            <div class="user-panel" onclick="App.toggleUserDropdown()">
                 <div class="topbar-avatar">${this.currentUser.name.charAt(0)}</div>
                 <div class="user-info">
                     <div class="user-name">${this.currentUser.name}</div>
                     <div class="user-role">${this.currentUser.role}</div>
                 </div>
-                <button class="btn btn-ghost btn-logout" onclick="App.handleLogout()" title="Logout">🚪</button>
+                <div style="font-size: 0.6rem; opacity: 0.5; margin-left: 4px;">▼</div>
+
+                <div class="user-dropdown" id="userDropdown">
+                    <div class="user-dropdown-header">
+                        <div class="user-dropdown-avatar">${this.currentUser.name.charAt(0)}</div>
+                        <div class="user-dropdown-info">
+                            <div class="user-name">${this.currentUser.name}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted)">${this.currentUser.email || 'user@docflow.ai'}</div>
+                        </div>
+                    </div>
+                    <div class="user-dropdown-actions">
+                        <div class="user-dropdown-item" onclick="App.navigate('settings')">
+                            <span>⚙️</span> Account Settings
+                        </div>
+                        <div class="user-dropdown-item logout" onclick="App.handleLogout()">
+                            <span>🚪</span> Sign Out
+                        </div>
+                    </div>
+                </div>
             </div>
         `;
     },
 
+    toggleUserDropdown() {
+        const dropdown = document.getElementById('userDropdown');
+        const overlay = document.getElementById('userDropdownOverlay');
+        if (!dropdown || !overlay) return;
+        
+        const isVisible = dropdown.style.display === 'flex';
+        dropdown.style.display = isVisible ? 'none' : 'flex';
+        overlay.style.display = isVisible ? 'none' : 'block';
+    },
+
+    closeUserDropdown() {
+        const dropdown = document.getElementById('userDropdown');
+        const overlay = document.getElementById('userDropdownOverlay');
+        if (dropdown) dropdown.style.display = 'none';
+        if (overlay) overlay.style.display = 'none';
+    },
+
     async handleLogout() {
+        this.closeUserDropdown();
         try {
             await AuthApi.logout();
         } catch (error) {
             console.error('Logout error:', error);
         }
         this.currentUser = null;
+        this.currentCompany = null;
+        this.organizations = [];
+        localStorage.removeItem('docflow-company');
         this.navigate('login');
+    },
+
+    async refreshOrganizations() {
+        try {
+            this.organizations = await OrganizationApi.list();
+            this.updateCompanySelector();
+            this.updateCompanyDot();
+        } catch (error) {
+            console.error('Failed to refresh organizations:', error);
+        }
     },
 
     updateCompanySelector() {
         const sel = document.getElementById('companySwitcher');
-        if (!sel) return;
-        sel.innerHTML = `<option value="all">All Companies</option>` +
-            MockData.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        if (!sel || !this.organizations) return;
+
+        let html = this.organizations.map(o => {
+            const id = o._id || o.id;
+            return `<option value="${id}" ${this.currentCompany === id ? 'selected' : ''}>${o.organization_name}</option>`;
+        }).join('');
+
+        html += `<option value="manage">⚙️ Manage Organizations</option>`;
+
+        sel.innerHTML = html;
     },
 
     updateCompanyDot() {
         const dot = document.getElementById('companyDot');
         if (!dot) return;
-        if (this.currentCompany === 'all') {
-            dot.style.background = 'var(--accent)';
+
+        const org = this.organizations?.find(o => (o._id || o.id) === this.currentCompany);
+        if (org) {
+            dot.style.background = org.color || 'var(--accent)';
         } else {
-            const comp = MockData.companies.find(c => c.id === this.currentCompany);
-            if (comp) dot.style.background = comp.color;
+            dot.style.background = 'var(--accent)';
         }
         this.updateSidebarBadges();
     },
@@ -163,7 +278,7 @@ window.App = {
         if (badge) { badge.textContent = pending; badge.style.display = pending ? 'inline-flex' : 'none'; }
     },
 
-    showToast(type, message) {
+    showToast(type, message, duration = 2000) {
         const container = document.getElementById('toastContainer');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
@@ -173,7 +288,7 @@ window.App = {
         setTimeout(() => {
             toast.style.animation = 'slideOut 0.3s ease forwards';
             setTimeout(() => toast.remove(), 300);
-        }, 3500);
+        }, duration);
     }
 };
 
@@ -189,5 +304,3 @@ window.Pages = {
     drive: () => App.navigate('drive'),
     settings: () => App.navigate('settings'),
 };
-
-document.addEventListener('DOMContentLoaded', () => App.init());

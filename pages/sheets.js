@@ -4,11 +4,18 @@ window.SheetsPage = {
     sortDir: 'desc',
     filterCategory: 'all',
     syncing: false,
+    expenses: [],
+    loading: false,
+    initialized: false,
 
     render(companyId) {
-        let expenses = companyId === 'all'
-            ? MockData.expenses
-            : MockData.expenses.filter(e => e.companyId === companyId);
+        if (!this.initialized || this.lastCompanyId !== companyId) {
+            this.initialized = true;
+            this.lastCompanyId = companyId;
+            this.loadExpenses(companyId);
+        }
+
+        let expenses = this.expenses;
 
         if (this.filterCategory !== 'all') expenses = expenses.filter(e => e.category === this.filterCategory);
         expenses = [...expenses].sort((a, b) => {
@@ -16,8 +23,8 @@ window.SheetsPage = {
             return this.sortDir === 'desc' ? -v : v;
         });
 
-        const total = expenses.reduce((s, e) => s + e.amount, 0);
-        const totalTax = expenses.reduce((s, e) => s + e.tax, 0);
+        const total = expenses.reduce((s, e) => s + (parseFloat(e.total) || 0), 0);
+        const totalTax = total * 0.07; // Approximate VAT if not in API
 
         return `
       <div class="page-header">
@@ -69,43 +76,8 @@ window.SheetsPage = {
             </select>
           </div>
         </div>
-        <div style="overflow-x:auto">
-          <table class="data-table">
-            <thead><tr>
-              <th style="cursor:pointer" onclick="SheetsPage.sort('vendor')">Vendor ${this.sortKey === 'vendor' ? '↕' : ''}</th>
-              <th style="cursor:pointer" onclick="SheetsPage.sort('date')">Date ${this.sortKey === 'date' ? '↕' : ''}</th>
-              <th style="cursor:pointer" onclick="SheetsPage.sort('amount')">Amount ${this.sortKey === 'amount' ? '↕' : ''}</th>
-              <th>Tax</th>
-              <th>Category</th>
-              <th>Source</th>
-              <th>Status</th>
-              <th>Company</th>
-            </tr></thead>
-            <tbody>
-              ${expenses.map(e => {
-            const comp = MockData.companies.find(c => c.id === e.companyId);
-            const srcIcons = { upload: '📤', email: '📧', line: '💬' };
-            return `<tr>
-                  <td>${e.vendor}</td>
-                  <td>${e.date}</td>
-                  <td style="font-weight:800;color:var(--text-primary)">฿${e.amount.toLocaleString()}</td>
-                  <td style="color:var(--text-muted)">฿${e.tax.toLocaleString()}</td>
-                  <td><span class="badge badge-info">${e.category}</span></td>
-                  <td>${srcIcons[e.source] || ''} ${e.source}</td>
-                  <td><span class="badge badge-${e.status}">${e.status}</span></td>
-                  <td>${comp ? `<span class="company-pill" style="background:${comp.color}22;color:${comp.color}">${comp.name}</span>` : ''}</td>
-                </tr>`;
-        }).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="border-top:2px solid var(--border)">
-                <td colspan="2" style="font-weight:700;color:var(--text-primary)">TOTAL</td>
-                <td style="font-weight:800;font-size:1rem;color:var(--accent)">฿${total.toLocaleString()}</td>
-                <td style="font-weight:700;color:var(--amber)">฿${totalTax.toLocaleString()}</td>
-                <td colspan="4"></td>
-              </tr>
-            </tfoot>
-          </table>
+        <div style="overflow-x:auto" id="sheetsTableContainer">
+            ${this.renderTable(expenses, total, totalTax)}
         </div>
       </div>
 
@@ -113,8 +85,12 @@ window.SheetsPage = {
         <div class="card-header">
           <div class="card-title">📊 Category Breakdown</div>
         </div>
-        ${Object.entries(
-            expenses.reduce((acc, e) => { acc[e.category] = (acc[e.category] || 0) + e.amount; return acc; }, {})
+        ${total === 0 ? '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No data to display.</div>' : Object.entries(
+            expenses.reduce((acc, e) => { 
+                const amt = parseFloat(e.total) || 0;
+                acc[e.category] = (acc[e.category] || 0) + amt; 
+                return acc; 
+            }, {})
         ).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => {
             const pct = Math.round((amt / total) * 100);
             const colors = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ef4444', '#8b5cf6', '#f97316', '#64748b'];
@@ -127,6 +103,57 @@ window.SheetsPage = {
         }).join('')}
       </div>
     `;
+    },
+
+    renderTable(expenses, total, totalTax) {
+        if (this.loading) return '<div style="padding:40px;text-align:center">Loading expense records...</div>';
+        if (expenses.length === 0) return '<div style="padding:40px;text-align:center;color:var(--text-secondary)">No records found.</div>';
+
+        return `
+          <table class="data-table">
+            <thead><tr>
+              <th style="cursor:pointer" onclick="SheetsPage.sort('vendor_name')">Vendor ${this.sortKey === 'vendor_name' ? '↕' : ''}</th>
+              <th style="cursor:pointer" onclick="SheetsPage.sort('date')">Date ${this.sortKey === 'date' ? '↕' : ''}</th>
+              <th style="cursor:pointer" onclick="SheetsPage.sort('total')">Amount ${this.sortKey === 'total' ? '↕' : ''}</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Organization ID</th>
+            </tr></thead>
+            <tbody>
+              ${expenses.map(e => {
+            return `<tr>
+                  <td>${e.vendor_name}</td>
+                  <td>${new Date(e.date).toLocaleDateString()}</td>
+                  <td style="font-weight:800;color:var(--text-primary)">฿${(parseFloat(e.total) || 0).toLocaleString()}</td>
+                  <td><span class="badge badge-info">${e.category}</span></td>
+                  <td><span class="badge badge-${e.status}">${e.status}</span></td>
+                  <td><span class="company-pill" style="background:var(--accent-soft);color:var(--accent);font-size:0.7rem">${e.organization_id}</span></td>
+                </tr>`;
+        }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--border)">
+                <td colspan="2" style="font-weight:700;color:var(--text-primary)">TOTAL</td>
+                <td style="font-weight:800;font-size:1rem;color:var(--accent)">฿${total.toLocaleString()}</td>
+                <td colspan="3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        `;
+    },
+
+    async loadExpenses(companyId) {
+        this.loading = true;
+        try {
+            this.expenses = await window.ExpenseApi.listExpenses(companyId);
+            const container = document.getElementById('sheetsTableContainer');
+            if (container) App.navigate('sheets'); // Refresh view
+        } catch (error) {
+            console.error('Failed to load expenses:', error);
+            App.showToast('error', 'Failed to load expense records');
+        } finally {
+            this.loading = false;
+        }
     },
 
     sort(key) {
@@ -148,11 +175,10 @@ window.SheetsPage = {
     },
 
     export() {
-        const expenses = MockData.expenses;
-        const headers = ['Vendor', 'Date', 'Amount', 'Tax', 'Category', 'Source', 'Status', 'Company'];
+        const expenses = this.expenses;
+        const headers = ['Vendor', 'Date', 'Amount', 'Category', 'Status', 'Organization'];
         const rows = expenses.map(e => {
-            const comp = MockData.companies.find(c => c.id === e.companyId);
-            return [e.vendor, e.date, e.amount, e.tax, e.category, e.source, e.status, comp?.name || ''].join(',');
+            return [e.vendor_name, e.date, e.total, e.category, e.status, e.organization_id].join(',');
         });
         const csv = [headers.join(','), ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });

@@ -1,7 +1,7 @@
 // Login Page
 window.LoginPage = {
-    render() {
-        return `
+  render() {
+    return `
       <div class="login-wrapper">
         <div class="login-card">
           <div class="login-header">
@@ -40,38 +40,39 @@ window.LoginPage = {
         </div>
       </div>
     `;
-    },
+  },
 
-    async handleLogin(e) {
-        e.preventDefault();
-        const email = document.getElementById('login_email').value;
-        const password = document.getElementById('login_password').value;
-        const btn = document.getElementById('loginBtn');
-        const errorDiv = document.getElementById('loginError');
+  async handleLogin(e) {
+    e.preventDefault();
+    const email = document.getElementById('login_email').value;
+    const password = document.getElementById('login_password').value;
+    const btn = document.getElementById('loginBtn');
+    const errorDiv = document.getElementById('loginError');
 
-        btn.disabled = true;
-        btn.textContent = '⏳ Signing in...';
-        errorDiv.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = '⏳ Signing in...';
+    errorDiv.style.display = 'none';
 
-        try {
-            const res = await AuthApi.login(email, password);
-            if (res.auth) {
-                localStorage.setItem('docflow-auth', res.auth);
-                App.showToast('success', '✅ Login successful! Redirecting...');
+    try {
+      const res = await AuthApi.login(email, password);
+      if (res.auth) {
+        localStorage.setItem('docflow-auth', res.auth);
+        localStorage.removeItem('docflow-company'); // Force organization re-selection
+        App.showToast('success', 'Login successful! Redirecting...');
 
-                // Fetch user info to populate app state
-                const user = await AuthApi.getMe();
-                window.App.currentUser = user;
+        // Fetch user info to populate app state
+        const user = await AuthApi.getMe();
+        window.App.currentUser = user;
 
-                // Redirect to dashboard
-                setTimeout(() => App.navigate('dashboard'), 1000);
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            errorDiv.style.display = 'block';
-            errorDiv.textContent = `❌ ${error.message}`;
-            btn.disabled = false;
-            btn.textContent = '🚀 Sign In';
-        }
+        // Redirect to selection page (guard will handle if already selected)
+        setTimeout(() => App.navigate('select-organization'), 100);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = `❌ ${error.message}`;
+      btn.disabled = false;
+      btn.textContent = '🚀 Sign In';
     }
+  }
 };

@@ -852,15 +852,17 @@ ul {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 6px 12px;
+    padding: 6px 14px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 99px;
     transition: var(--transition);
+    cursor: pointer;
+    position: relative;
 }
 
 .user-panel:hover {
-    border-color: var(--border-active);
+    border-color: var(--accent);
     background: var(--bg-card-hover);
 }
 
@@ -881,10 +883,92 @@ ul {
     text-transform: capitalize;
 }
 
-.btn-logout {
-    padding: 4px 10px;
-    font-size: 0.75rem;
-    margin-left: 4px;
+/* User Dropdown */
+.user-dropdown-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: transparent;
+    display: none;
+}
+
+.user-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 260px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 100;
+    animation: fadeInSlideUp 0.2s ease;
+}
+
+@keyframes fadeInSlideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.user-dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.user-dropdown-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #818cf8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.user-dropdown-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-dropdown-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.user-dropdown-item:hover {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.user-dropdown-item.logout {
+    color: var(--red);
+}
+
+.user-dropdown-item.logout:hover {
+    background: var(--red-soft);
 }
 
 /* ─── Form Elements Updates ─── */
@@ -914,6 +998,7 @@ ul {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
 }
+.integration-card-header {
     display: flex;
     align-items: center;
     gap: 14px;
