@@ -7,7 +7,8 @@ import { expensesRouter } from './routes/expenses.js';
 
 export function createApp(db: Db, corsOrigins: string[] = []) {
   const app = express();
-  app.use(cors({ origin: corsOrigins }));
+  const patterns = corsOrigins.map((o) => new RegExp('^' + o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]*') + '$'));
+  app.use(cors({ origin: (origin, cb) => cb(null, !origin || patterns.some((p) => p.test(origin))) }));
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));

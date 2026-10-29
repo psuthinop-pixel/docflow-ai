@@ -28,7 +28,7 @@ Receipt capture and expense tracking for multiple companies, built for Thai SMEs
 ## Phase 0 — Foundation (1–2 weeks)
 Goal: the features that already work end to end run against a real backend.
 
-- [x] Backend in `backend/`: Node + TypeScript + Express, with SQLite (`node:sqlite`)
+- [x] Backend in `backend/`: Node + TypeScript + Express, with Postgres (Neon), deployed on Vercel
 - [x] JWT auth: `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` (tokens revoked on logout)
 - [x] `GET/POST /organizations`, with a role per organization
 - [x] `GET/POST /expenses`, `PUT/DELETE /expenses/:id`, all scoped to the user's organizations

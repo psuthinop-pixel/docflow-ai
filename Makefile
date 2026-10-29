@@ -7,5 +7,8 @@ run-backend:
 seed:
 	cd backend && npm run seed -- $(EMAIL) $(PASSWORD)
 
+migrate:
+	cd backend && npm run migrate
+
 test-backend:
 	cd backend && npm test
