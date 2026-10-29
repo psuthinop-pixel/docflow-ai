@@ -50,7 +50,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Duplicate check: same file hash, or same seller tax ID + invoice number → warning on upload, 409 on save unless confirmed
 - [x] Review warnings: bad tax ID checksum, VAT not 7% of total, missing date/total, low OCR confidence
 - [x] Frontend: Receipts page uses server extraction; browser Tesseract and demo receipts removed
-- [ ] **Validate on 50 real receipts from your properties** (now 96.9% on 10 synthetic + 1 real toll receipt; 1 of 50 real done)
+- [ ] **Validate on 50 real receipts from your properties** — 40 real Airtable PCK receipts tested: Tesseract engine 40% totals, 38% vendors (far below target; see Claude engine)
 
 **Exit:** ≥90% field accuracy on a sample of 50 real Thai receipts.
 
