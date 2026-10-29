@@ -37,7 +37,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] `ExpenseApi.deleteExpense`
 - [x] API tests (`node:test`)
 - [x] Production database: Neon Postgres (project `docflow`, ap-southeast-1)
-- [ ] Choose an app host for the API (Neon hosts the database only)
+- [x] API host: Vercel serverless (`backend/api/index.ts`, region `sin1`)
 
 **Exit:** login → choose an organization → upload a receipt → save → it appears on the Dashboard, with no mock data on that path.
 

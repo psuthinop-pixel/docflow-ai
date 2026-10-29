@@ -57,10 +57,15 @@ export async function migrate(db: Db): Promise<void> {
   for (const stmt of SCHEMA) await db.query(stmt);
 }
 
-/** Connect to Postgres (e.g. Neon's pooled connection string) and ensure the schema exists. */
-export async function openDb(databaseUrl: string): Promise<Db> {
+/** Postgres pool for a Neon pooled connection string. Lazy: no connection is opened until the first query. */
+export function connect(databaseUrl: string, max = 5): Db {
   if (!databaseUrl) throw new Error('DATABASE_URL must be set (Neon pooled connection string)');
-  const db = new pg.Pool({ connectionString: databaseUrl, max: 5 });
+  return new pg.Pool({ connectionString: databaseUrl, max, idleTimeoutMillis: 10_000 });
+}
+
+/** Connect and ensure the schema exists (long-running server, seed, migrate). */
+export async function openDb(databaseUrl: string): Promise<Db> {
+  const db = connect(databaseUrl);
   await migrate(db);
   return db;
 }
