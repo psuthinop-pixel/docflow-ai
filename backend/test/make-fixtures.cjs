@@ -74,6 +74,9 @@ const receipts = [
   await page.setContent(`<html><body style="font-family:'Loma',sans-serif;font-size:16px;padding:24px">${receipts[0].html}</body></html>`);
   await page.pdf({ path: path.join(out, 'thai-tax-invoice.pdf'), width: '148mm', height: '210mm' });
   expected['thai-tax-invoice.pdf'] = receipts[0].expected;
+  // Keep entries for real receipts (files not generated here).
+  const prev = JSON.parse(fs.readFileSync(path.join(out, 'expected.json'), 'utf8'));
+  for (const [k, v] of Object.entries(prev)) if (k.startsWith('real-')) expected[k] = v;
   fs.writeFileSync(path.join(out, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
   await browser.close();
 })();

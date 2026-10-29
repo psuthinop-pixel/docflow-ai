@@ -64,6 +64,21 @@ export function receiptsRouter(db: Db, opts: ReceiptOptions): Router {
       );
 
       const f = extraction.fields;
+      // Known vendor: reuse the name/category/address a person already confirmed for this tax ID.
+      if (f.vendor_taxid) {
+        const known = db
+          .prepare(
+            `SELECT vendor_name, vendor_address, category FROM expenses
+             WHERE organization_id = ? AND vendor_taxid = ? AND status != 'draft' AND vendor_name != ''
+             ORDER BY updated_at DESC LIMIT 1`,
+          )
+          .get(orgId, f.vendor_taxid) as { vendor_name: string; vendor_address: string; category: string } | undefined;
+        if (known) {
+          f.vendor_name = known.vendor_name;
+          f.vendor_address ||= known.vendor_address;
+          f.category ||= known.category;
+        }
+      }
       const duplicates = db
         .prepare(
           `SELECT e.id, e.vendor_name, e.invoice_number, e.total, e.date FROM expenses e

@@ -73,5 +73,14 @@
     "tax_amount": 140,
     "is_tax_invoice": true,
     "vendor_name": "บริษัท สยามวัสดุ จำกัด"
+  },
+  "real-exat-toll.jpg": {
+    "vendor_taxid": "0994000165421",
+    "invoice_number": "21119202610290510105",
+    "date": "2026-10-29",
+    "total": 60,
+    "tax_amount": null,
+    "is_tax_invoice": false,
+    "vendor_name": "การทางพิเศษแห่งประเทศไทย"
   }
 }

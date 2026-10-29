@@ -104,15 +104,20 @@ const AMOUNT = String.raw`([0-9]{1,3}(?:[.,][0-9]{3})+\.\d{2}|[0-9][0-9,]*\.\d{2
 
 /** Last amount on the first line matching any label (receipts list totals near the bottom). */
 function amountAfter(lines: string[], labels: RegExp, exclude?: RegExp): number | null {
-  let found: number | null = null;
-  for (const line of lines) {
-    if (!labels.test(line) || (exclude && exclude.test(line))) continue;
-    const nums = [...line.matchAll(new RegExp(AMOUNT, 'g'))]
+  const amountsIn = (line: string) =>
+    [...line.matchAll(new RegExp(AMOUNT, 'g'))]
       .map((m) => m[1])
       .filter((s) => !/^(7|07)$/.test(s)); // skip the "7" in "VAT 7%"
+  let found: number | null = null;
+  lines.forEach((line, i) => {
+    if (!labels.test(line) || (exclude && exclude.test(line))) return;
+    let nums = amountsIn(line);
+    // Narrow receipts often print the amount right-aligned on the next line.
+    const next = lines[i + 1] ?? '';
+    if (!nums.length && !/[A-Za-z]/.test(next) && (next.match(/[ก-๙]/g) ?? []).length <= 3) nums = amountsIn(next);
     const last = nums.length ? parseAmount(nums[nums.length - 1]) : null;
     if (last !== null) found = last;
-  }
+  });
   return found;
 }
 
@@ -153,16 +158,18 @@ export function parseReceipt(raw: string): ReceiptFields {
 
   const total = amountAfter(
     lines,
-    /(ยอดสุทธิ|รวมทั้งสิ้น|ยอดรวมสุทธิ|จำนวนเงินรวม|grand\s*total|net\s*total|total\s*amount|amount\s*due|^total\b|\btotal\b)/i,
+    /(ยอดสุทธิ|รวมทั้งสิ้น|ยอดรวมสุทธิ|จำนวนเงินรวม|รวมภาษีมูลค่าเพิ่ม|baht\s*\(?\s*vat\s*incl|grand\s*total|net\s*total|total\s*amount|amount\s*due|^total\b|\btotal\b)/i,
     /(sub\s*total|ก่อน\s*vat|before\s*vat|ไม่รวม)/i,
   );
-  const tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|excl|ราคารวม|incl)/i);
+  const tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|excl|ราคารวม|incl|ผู้เสียภาษี|ประจำตัว|tax\s*id)/i);
   const subtotal = amountAfter(lines, /(sub\s*total|ก่อน\s*vat|before\s*vat|มูลค่าสินค้า|ราคาไม่รวม|รวมเงิน)/i);
 
   // Vendor: first line that looks like a company name, else the first non-numeric line.
   const vendorLine =
-    lines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|co\.,?\s*ltd|company|limited|public)/i.test(l)) ??
-    lines.find((l) => /[A-Za-zก-๙]{3,}/.test(l) && !/(ใบเสร็จ|ใบกำกับ|receipt|invoice|tax)/i.test(l)) ??
+    lines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|บมจ\.|co\.,?\s*ltd|company|limited|public)/i.test(l)) ??
+    // State enterprises and agencies: การทางพิเศษแห่งประเทศไทย, การไฟฟ้านครหลวง, กรม..., องค์การ...
+    lines.find((l) => /(^การ[ก-๙]{3,}|^องค์การ|^กรม[ก-๙]|^สำนักงาน[ก-๙]|แห?่?งประเทศไทย|มหาวิทยาลัย|โรงพยาบาล)/.test(l)) ??
+    lines.find((l) => (l.match(/[A-Za-zก-๙]/g) ?? []).length >= 6 && !/(ใบเสร็จ|ใบกำกับ|ใบรับ|receipt|invoice|tax)/i.test(l)) ??
     '';
   const vendor_name = tidyCompanyName(vendorLine.replace(/\s*(\((?!มหาชน).*\)|สำนักงานใหญ่|head\s*office)\s*$/i, '').trim());
 

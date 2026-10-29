@@ -94,6 +94,26 @@ test('upload → extract → save → duplicate → approve', { timeout: 120_000
   assert.equal((await call('DELETE', `/expenses/${saved.body._id}`, member)).status, 403);
 });
 
+test('real toll receipt: extraction, then vendor learned from a confirmed expense', { timeout: 120_000 }, async () => {
+  const owner = await login('owner@test.com');
+  const org = (await call('POST', '/organizations', owner, { organization_name: 'Tolls', categories: ['Transport'] })).body;
+  const first = await call('POST', '/receipts', owner, form(org._id, 'real-exat-toll.jpg', 'image/jpeg'));
+  assert.equal(first.body.fields.vendor_taxid, '0994000165421');
+  assert.equal(first.body.fields.total, 60);
+  await call('POST', '/expenses', owner, {
+    organization_id: org._id, receipt_id: first.body.receipt._id, status: 'confirmed',
+    vendor_name: 'การทางพิเศษแห่งประเทศไทย', vendor_taxid: '0994000165421', category: 'Transport',
+    invoice_number: first.body.fields.invoice_number, total: 60,
+  });
+  const fd = new FormData();
+  fd.append('organization_id', org._id);
+  // Different bytes (not a file-hash duplicate) but the same seller.
+  fd.append('file', new Blob([readFileSync(path.join(fixtures, 'real-exat-toll.jpg')), new Uint8Array([0])], { type: 'image/jpeg' }), 'toll2.jpg');
+  const second = await call('POST', '/receipts', owner, fd);
+  assert.equal(second.body.fields.vendor_name, 'การทางพิเศษแห่งประเทศไทย');
+  assert.equal(second.body.fields.category, 'Transport');
+});
+
 test('rejects unsupported types and foreign receipts', async () => {
   const owner = await login('owner@test.com');
   const org = (await call('POST', '/organizations', owner, { organization_name: 'Other' })).body;
