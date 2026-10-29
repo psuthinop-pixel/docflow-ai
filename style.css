@@ -622,6 +622,17 @@ ul {
     color: var(--amber);
 }
 
+.badge-approved {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.badge-draft,
+.badge-disabled {
+    background: var(--amber-soft);
+    color: var(--amber);
+}
+
 .badge-error {
     background: var(--red-soft);
     color: var(--red);

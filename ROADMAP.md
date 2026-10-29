@@ -9,8 +9,8 @@ Receipt capture and expense tracking for multiple companies, built for Thai SMEs
 | App core: routing, theme, auth bootstrap, company switcher | ✅ Real |
 | Auth API: `login`, `getMe`, `logout` | ✅ Real (backend added in Phase 0) |
 | Organizations API: `list`, `create` | ✅ Real |
-| Expenses API: `create`, `list`, `update` | ⚠️ Real, but has no delete |
-| Receipts: upload + Tesseract OCR + confirm/edit | ⚠️ English only, PDFs not OCR'd |
+| Expenses API: `create`, `list`, `update`, `delete` | ✅ Real |
+| Receipts: upload + Tesseract OCR + confirm/edit | ✅ Server-side Thai OCR (Phase 1) |
 | Dashboard | ✅ Real data |
 | Sheets: table, sort, filter, CSV | ⚠️ Table is real, "sync" is mock |
 | Reports | ❌ Mock data |
@@ -18,7 +18,7 @@ Receipt capture and expense tracking for multiple companies, built for Thai SMEs
 | Settings: API keys, companies | ❌ Mock; keys kept in the browser |
 
 ### Key risks
-- **Thai OCR:** only `eng` is loaded, so Thai tax invoices extract poorly.
+- ~~**Thai OCR:** only `eng` is loaded~~ — fixed in Phase 1.
 - **Secrets in the browser:** API keys belong on the server.
 - **Mixed data sources:** Reports and Settings use `MockData` while the Dashboard uses real organizations, so totals disagree.
 - **Hardcoded `localhost:8000`:** there's no config per environment.
@@ -41,10 +41,16 @@ Goal: the features that already work end to end run against a real backend.
 **Exit:** login → choose an organization → upload a receipt → save → it appears on the Dashboard, with no mock data on that path.
 
 ## Phase 1 — Core receipt capture (2–3 weeks) ← where most of the value is
-- OCR on the server with Thai support (`tha+eng`, or cloud OCR / LLM extraction)
-- Extract the 13-digit tax ID, VAT 7%, invoice number and date (Buddhist-era years)
-- Real PDF processing; store the original receipt file
-- Review status workflow (draft → confirmed → approved); duplicate check
+- [x] OCR on the server, Thai + English (`tesseract.js`, `tha+eng`, language data bundled, works offline)
+- [x] Optional Claude extractor (`OCR_ENGINE=claude`, or `auto` when `ANTHROPIC_API_KEY` is set) — not yet tested live
+- [x] Extract the 13-digit tax ID (checksum validated), VAT, invoice number, date (พ.ศ. → ค.ศ., Thai month names, Thai digits)
+- [x] PDFs: text layer first (e-Tax), scanned PDFs rasterised with `pdftoppm`
+- [x] Original receipt file stored (`UPLOAD_DIR`) and viewable from the UI
+- [x] Status workflow: draft → confirmed → approved (owner/admin only; approved records locked for members)
+- [x] Duplicate check: same file hash, or same seller tax ID + invoice number → warning on upload, 409 on save unless confirmed
+- [x] Review warnings: bad tax ID checksum, VAT not 7% of total, missing date/total, low OCR confidence
+- [x] Frontend: Receipts page uses server extraction; browser Tesseract and demo receipts removed
+- [ ] **Validate on 50 real receipts from your properties** (current 98.2% is on 10 synthetic fixtures)
 
 **Exit:** ≥90% field accuracy on a sample of 50 real Thai receipts.
 

@@ -1,0 +1,77 @@
+{
+  "thai-tax-invoice.png": {
+    "vendor_taxid": "0105556012341",
+    "invoice_number": "INV6810-0045",
+    "date": "2025-10-15",
+    "total": 2140,
+    "tax_amount": 140,
+    "is_tax_invoice": true,
+    "vendor_name": "บริษัท สยามวัสดุ จำกัด"
+  },
+  "thai-month-name.png": {
+    "vendor_taxid": "0994000165340",
+    "invoice_number": "RC2568-1188",
+    "date": "2025-09-03",
+    "total": 856,
+    "tax_amount": 56,
+    "is_tax_invoice": true
+  },
+  "english-retail.png": {
+    "vendor_taxid": "0107542000011",
+    "invoice_number": "T25-778812",
+    "date": "2025-10-28",
+    "total": 1284,
+    "tax_amount": 84,
+    "is_tax_invoice": true
+  },
+  "short-be-year.png": {
+    "vendor_taxid": "0105536092641",
+    "invoice_number": "HP-99231",
+    "date": "2025-08-21",
+    "total": 5350,
+    "tax_amount": 350,
+    "is_tax_invoice": true
+  },
+  "thai-tax-invoice-photo.jpg": {
+    "vendor_taxid": "0105556012341",
+    "invoice_number": "INV6810-0045",
+    "date": "2025-10-15",
+    "total": 2140,
+    "tax_amount": 140,
+    "is_tax_invoice": true,
+    "vendor_name": "บริษัท สยามวัสดุ จำกัด"
+  },
+  "thai-month-name-photo.jpg": {
+    "vendor_taxid": "0994000165340",
+    "invoice_number": "RC2568-1188",
+    "date": "2025-09-03",
+    "total": 856,
+    "tax_amount": 56,
+    "is_tax_invoice": true
+  },
+  "short-be-year-photo.jpg": {
+    "vendor_taxid": "0105536092641",
+    "invoice_number": "HP-99231",
+    "date": "2025-08-21",
+    "total": 5350,
+    "tax_amount": 350,
+    "is_tax_invoice": true
+  },
+  "short-be-year-scan.pdf": {
+    "vendor_taxid": "0105536092641",
+    "invoice_number": "HP-99231",
+    "date": "2025-08-21",
+    "total": 5350,
+    "tax_amount": 350,
+    "is_tax_invoice": true
+  },
+  "thai-tax-invoice.pdf": {
+    "vendor_taxid": "0105556012341",
+    "invoice_number": "INV6810-0045",
+    "date": "2025-10-15",
+    "total": 2140,
+    "tax_amount": 140,
+    "is_tax_invoice": true,
+    "vendor_name": "บริษัท สยามวัสดุ จำกัด"
+  }
+}
