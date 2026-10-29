@@ -1,3 +1,7 @@
 backend
 Makefile
 ROADMAP.md
+neon.ts
+hello.ts
+package.json
+package-lock.json
