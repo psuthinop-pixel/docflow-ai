@@ -79,5 +79,28 @@ window.ExpenseApi = {
         }
 
         return await response.json();
+    },
+
+    /**
+     * Delete an expense
+     * @param {string} expenseId - The ID of the expense to delete
+     */
+    async deleteExpense(expenseId) {
+        const token = localStorage.getItem('docflow-auth');
+        if (!token) throw new Error('No auth token found');
+
+        const response = await fetch(`${window.docflow_url}/expenses/${expenseId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(error.detail || 'Failed to delete expense');
+        }
+
+        return true;
     }
 };

@@ -1,5 +1,5 @@
 // DocFlow AI — App Router & State Manager
-window.docflow_url = 'http://localhost:8000'; // Backend API URL
+window.docflow_url = (window.DOCFLOW_CONFIG && window.DOCFLOW_CONFIG.apiUrl) || 'http://localhost:8000'; // Backend API URL (see config.js)
 window.App = {
     currentPage: 'dashboard',
     currentCompany: null,
