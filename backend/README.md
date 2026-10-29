@@ -9,7 +9,7 @@ npm run dev                                              # http://localhost:8000
 npm test
 ```
 
-Env: `UPLOAD_DIR` (uploads), `MAX_UPLOAD_MB` (10), `OCR_ENGINE` (`auto` | `tesseract` | `claude`), `ANTHROPIC_API_KEY` (enables Claude in `auto`), `CLAUDE_MODEL`, `PORT` (8000), `DB_PATH` (docflow.db), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
+Env: `UPLOAD_DIR` (uploads), `MAX_UPLOAD_MB` (10), `OCR_ENGINE` (`auto` | `typhoon` | `tesseract` | `claude`; `auto` = Typhoon → Claude → Tesseract, falling back to Tesseract if Typhoon fails), `TYPHOON_OCR_API_KEY` (enables Typhoon in `auto`; needs `pip install typhoon-ocr` and `pdftoppm`), `TYPHOON_CACHE_DIR` (optional OCR text cache), `ANTHROPIC_API_KEY` (enables Claude in `auto`), `CLAUDE_MODEL`, `PORT` (8000), `DB_PATH` (docflow.db), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
 
 | Method | Path | Notes |
 |---|---|---|

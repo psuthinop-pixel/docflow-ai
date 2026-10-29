@@ -94,6 +94,12 @@ export function parseDate(text: string): string | null {
       const mon = THAI_MONTHS.find(([re]) => re.test(m![2].trim()));
       if (mon) { const r = isoDate(+m[3], mon[1], +m[1]); if (r) return r; }
     }
+    // September 25, 2026 / Oct 25 2025
+    m = src.match(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b/);
+    if (m) {
+      const idx = EN_MONTHS.indexOf(m[1].toLowerCase());
+      if (idx >= 0) { const r = isoDate(+m[3], idx + 1, +m[2]); if (r) return r; }
+    }
     // 25 Oct 2025
     m = src.match(/(\d{1,2})\s*([A-Za-z]{3})[a-z]*\.?,?\s*(\d{2,4})/);
     if (m) {
@@ -136,17 +142,22 @@ function amountAfter(lines: string[], labels: RegExp, exclude?: RegExp): number 
 }
 
 const INVOICE_LABELS = [
+  /(?:เลขที่(?:เอกสาร|ใบกำกับ(?:ภาษี)?|ใบเสร็จ(?:รับเงิน)?|ใบแจ้งหนี้)|document\s*no\.?)\s*(?:no\.?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,})/i,
   /(?:receipt|invoice|inv|bill|doc(?:ument)?)\s*(?:no\.?|number|#)\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,})/i,
-  /เลขที่\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,})/i,
+  /เลขที่\s*[:#]?\s*(?:no\.?\s*)?[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,})/i,
   /\bno\.?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,})/i,
 ];
+
+// "เลขที่ 140 อาคาร..." / "บ้านเลขที่ 86/6 ถนน..." are house numbers, not document numbers.
+const ADDRESS_LINE = /(ที่อยู่|address|บ้านเลขที่|อาคาร|ชั้น|ห้อง|ถนน|ถ\.|ซอย|หมู่|แขวง|ตำบล|อำเภอ|road|floor|building)/i;
 
 function findInvoiceNumber(lines: string[], taxid: string): string {
   for (const re of INVOICE_LABELS) {
     for (const line of lines) {
-      if (/(ผู้เสียภาษี|ประจำตัว|tax\s*id)/i.test(line)) continue;
+      if (/(ผู้เสียภาษี|ประจำตัว|tax\s*id)/i.test(line) || ADDRESS_LINE.test(line)) continue;
       const m = line.match(re);
-      if (m && m[1].replace(/\D/g, '') !== taxid) return m[1];
+      // Document numbers carry digits; "INVOICE" / "PURCHASE" are captured header words.
+      if (m && /\d/.test(m[1]) && m[1].replace(/\D/g, '') !== taxid) return m[1];
     }
   }
   return '';
@@ -194,6 +205,7 @@ function cleanVendorLine(line: string): string {
   return line
     .replace(/^.*?digitally\s+signed\s+by\s*/i, '')
     .replace(/^[\s:：|.,-]+/, '')
+    .replace(/^(ชื่อบริษัท|ชื่อร้าน|ชื่อกิจการ|company\s*name)\s*[:：]?\s*/i, '')
     .replace(/\s*(เลขประจำตัว|tax\s*id|โทร|tel\.?|เลขที่|no\.|J\s*0\d|0\d{1,2}-\d{3}).*$/i, '')
     .trim();
 }
@@ -210,10 +222,10 @@ export function parseReceipt(raw: string): ReceiptFields {
 
   const total = amountAfter(
     lines,
-    /(ยอดสุทธิ|รวมทั้งสิ้น|ยอดรวมสุทธิ|จำนวนเงินรวม|รวมภาษีมูลค่าเพิ่ม|baht\s*\(?\s*vat\s*incl|grand\s*total|net\s*total|total\s*amount|amount\s*due|^total\b|\btotal\b)/i,
+    /(ยอดสุทธิ|รวมทั้งสิ้น|มูลค่ารวม|ยอดรวมสุทธิ|จำนวนเงินรวม|รวมภาษีมูลค่าเพิ่ม|baht\s*\(?\s*vat\s*incl|grand\s*total|net\s*total|total\s*amount|amount\s*due|^total\b|\btotal\b)/i,
     /(sub\s*total|ก่อน\s*vat|before\s*vat|ไม่รวม)/i,
   );
-  let tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|excl|ราคารวม|incl|ผู้เสียภาษี|ประจำตัว|tax\s*id)/i);
+  let tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|ไม่มี|ยกเว้น|exempt|non[\s-]*vat|excl|ราคารวม|incl|ผู้เสียภาษี|ประจำตัว|tax\s*id)/i);
   // A VAT amount is never larger than the total; such hits are document or ID numbers.
   if (tax_amount !== null && total !== null && tax_amount >= total) tax_amount = null;
   const subtotal = amountAfter(lines, /(sub\s*total|ก่อน\s*vat|before\s*vat|มูลค่าสินค้า|ราคาไม่รวม|รวมเงิน)/i);
@@ -222,7 +234,7 @@ export function parseReceipt(raw: string): ReceiptFields {
   const labelled = sellerLines.find((l) => SELLER_LABEL.test(l));
   const vendorLine =
     (labelled ? labelled.replace(new RegExp(`^.*?${SELLER_LABEL.source}\\s*[:：]?\\s*`, 'i'), '') || undefined : undefined) ??
-    sellerLines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|บมจ\.|co\.,?\s*ltd|company|limited|public)/i.test(l)) ??
+    sellerLines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|บมจ\.|co\.,?\s*ltd|company|limited|public|\b(?:inc|llc|pbc|corp|gmbh|pte)\b\.?)/i.test(l)) ??
     // State enterprises and agencies: การทางพิเศษแห่งประเทศไทย, การไฟฟ้านครหลวง, กรม..., องค์การ...
     sellerLines.find((l) => /(^การ[ก-๙]{3,}|^องค์การ|^กรม[ก-๙]|^สำนักงาน[ก-๙]|แห?่?งประเทศไทย|มหาวิทยาลัย|โรงพยาบาล)/.test(l)) ??
     sellerLines.find((l) => (l.match(/[A-Za-zก-๙]/g) ?? []).length >= 6 && !/(ใบเสร็จ|ใบกำกับ|ใบรับ|receipt|invoice|tax)/i.test(l)) ??
@@ -243,7 +255,7 @@ export function parseReceipt(raw: string): ReceiptFields {
     subtotal,
     tax_amount,
     total,
-    currency: 'THB',
+    currency: /\bUSD\b|US\$|\$\s?\d/.test(text) && !/(บาท|\bTHB\b|฿)/.test(text) ? 'USD' : 'THB',
     is_tax_invoice: /(ใบกำกับภาษี|tax\s*invoice)/i.test(text),
   };
 }

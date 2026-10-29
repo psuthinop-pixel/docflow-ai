@@ -1,9 +1,10 @@
 // Receipt extraction pipeline: pick an engine, extract, normalise and validate.
 import { extractText } from './ocr.js';
+import { typhoonEnabled, typhoonText } from './typhoon.js';
 import { claudeEnabled, extractWithClaude } from './claude.js';
 import { isValidThaiTaxId, parseReceipt, validateFields, type ReceiptFields } from './parse.js';
 
-export type Engine = 'tesseract' | 'claude';
+export type Engine = 'tesseract' | 'claude' | 'typhoon';
 
 export interface Extraction {
   engine: Engine;
@@ -14,12 +15,14 @@ export interface Extraction {
 }
 
 export function pickEngine(setting: string): Engine {
-  if (setting === 'claude' || setting === 'tesseract') return setting;
+  if (setting === 'claude' || setting === 'tesseract' || setting === 'typhoon') return setting;
+  // Typhoon reads Thai receipts best; tesseract is the offline fallback.
+  if (typhoonEnabled()) return 'typhoon';
   return claudeEnabled() ? 'claude' : 'tesseract';
 }
 
 export async function extractReceipt(buf: Buffer, mime: string, categories: string[], setting = 'auto'): Promise<Extraction> {
-  const engine = pickEngine(setting);
+  let engine = pickEngine(setting);
   if (engine === 'claude') {
     const c = await extractWithClaude(buf, mime, categories);
     // Cross-check the model's answer with the rule-based parser on its own transcription.
@@ -33,9 +36,23 @@ export async function extractReceipt(buf: Buffer, mime: string, categories: stri
     const { raw_text: _t, ...clean } = fields;
     return { engine, confidence: null, text: c.raw_text, fields: clean, warnings: validateFields(clean) };
   }
+  let fallback = '';
+  if (engine === 'typhoon') {
+    try {
+      const text = await typhoonText(buf, mime);
+      const fields = { ...parseReceipt(text), category: '' };
+      return { engine, confidence: null, text, fields, warnings: validateFields(fields) };
+    } catch (e) {
+      // An explicit 'typhoon' setting (e.g. the eval) should surface the error, not mask it.
+      if (setting === 'typhoon') throw e;
+      engine = 'tesseract';
+      fallback = `Typhoon OCR unavailable (${(e as Error).message.split('\n')[0].slice(0, 120)}) — used offline OCR`;
+    }
+  }
   const ocr = await extractText(buf, mime);
   const fields = { ...parseReceipt(ocr.text), category: '' };
   const warnings = validateFields(fields);
+  if (fallback) warnings.unshift(fallback);
   if (ocr.source === 'tesseract' && ocr.confidence < 60) warnings.push(`Low OCR confidence (${ocr.confidence}%) — please check every field`);
   return { engine, confidence: ocr.confidence, text: ocr.text, fields, warnings };
 }

@@ -2,6 +2,7 @@
 // Real documents stay OUTSIDE the repo. Usage:
 //   npx tsx test/eval-airtable.ts <dir>   where <dir> has manifest.jsonl + files/<recordId>.<ext>
 // manifest.jsonl rows: {id, date, vendor, vfull, total, exvat, vatreg, order, files:[{filename,type,url}]}
+//   optional: net_receipt, net_slip (either counts as the right total), skip: ["total", ...] for known-bad labels
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractReceipt } from '../src/extract/index.js';
@@ -35,7 +36,7 @@ const vendorOk = (got: string, want: string) => {
 
 const rows = readFileSync(path.join(dir, 'manifest.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const files = readdirSync(path.join(dir, 'files'));
-const score = { total: [0, 0], vendor: [0, 0], invoice: [0, 0], vat: [0, 0], date7: [0, 0] };
+const score = { total: [0, 0], vendor: [0, 0], invoice: [0, 0], vat: [0, 0], date7: [0, 0], date60: [0, 0] };
 const report: string[] = [];
 
 for (const r of rows) {
@@ -51,17 +52,24 @@ for (const r of rows) {
     continue;
   }
   const line: string[] = [r.id];
+  const skip: string[] = r.skip ?? [];
   const check = (k: keyof typeof score, ok: boolean, detail: string) => {
+    if (skip.includes(k) || (k.startsWith('date') && skip.includes('date'))) return void line.push(`-${k}`);
     score[k][1]++; if (ok) score[k][0]++; line.push(`${ok ? '✓' : '✗'}${k}${ok ? '' : `(${detail})`}`);
   };
-  check('total', f.total !== null && Math.abs(f.total - r.total) < 0.01, `${f.total} vs ${r.total}`);
+  // Receipt and bank-slip nets differ on some orders (fees); a document matching either is right.
+  const totals = [r.total, r.net_receipt, r.net_slip].filter((t) => typeof t === 'number');
+  check('total', f.total !== null && totals.some((t) => Math.abs(f.total! - t) < 0.01), `${f.total} vs ${[...new Set(totals)].join('/')}`);
   const want = r.vfull ?? r.vendor ?? '';
   if (want) check('vendor', vendorOk(f.vendor_name, want), `${f.vendor_name} vs ${want}`);
   // Order numbers like 251201 are record dates, not document numbers — skip those.
   if (r.order && !/^\d{6}$/.test(r.order)) check('invoice', f.invoice_number.toUpperCase() === r.order.toUpperCase(), `${f.invoice_number} vs ${r.order}`);
   if ((r.vatreg?.name ?? r.vatreg) === 'Yes') check('vat', f.tax_amount !== null && Math.abs(f.tax_amount - (r.total - r.exvat)) <= 0.05, `${f.tax_amount} vs ${(r.total - r.exvat).toFixed(2)}`);
   // Record date is when it was logged; the document date is usually within a week.
-  if (r.date) check('date7', !!f.date && Math.abs(Date.parse(f.date) - Date.parse(r.date)) <= 7 * 864e5, `${f.date} vs ${r.date}`);
+  // date60 allows for receipts logged weeks after issue.
+  const days = f.date && r.date ? Math.abs(Date.parse(f.date) - Date.parse(r.date)) / 864e5 : Infinity;
+  if (r.date) check('date7', days <= 7, `${f.date} vs ${r.date}`);
+  if (r.date) check('date60', days <= 60, `${f.date} vs ${r.date}`);
   report.push(line.join(' '));
 }
 

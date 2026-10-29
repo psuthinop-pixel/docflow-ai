@@ -42,6 +42,7 @@ Goal: the features that already work end to end run against a real backend.
 
 ## Phase 1 — Core receipt capture (2–3 weeks) ← where most of the value is
 - [x] OCR on the server, Thai + English (`tesseract.js`, `tha+eng`, language data bundled, works offline)
+- [x] Typhoon OCR engine, default in `auto` when `TYPHOON_OCR_API_KEY` is set; Tesseract is the offline fallback
 - [x] Optional Claude extractor (`OCR_ENGINE=claude`, or `auto` when `ANTHROPIC_API_KEY` is set) — not yet tested live
 - [x] Extract the 13-digit tax ID (checksum validated), VAT, invoice number, date (พ.ศ. → ค.ศ., Thai month names, Thai digits)
 - [x] PDFs: text layer first (e-Tax), scanned PDFs rasterised with `pdftoppm`
@@ -50,7 +51,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Duplicate check: same file hash, or same seller tax ID + invoice number → warning on upload, 409 on save unless confirmed
 - [x] Review warnings: bad tax ID checksum, VAT not 7% of total, missing date/total, low OCR confidence
 - [x] Frontend: Receipts page uses server extraction; browser Tesseract and demo receipts removed
-- [ ] **Validate on 50 real receipts from your properties** — 40 real Airtable PCK receipts tested: Tesseract engine 40% totals, 38% vendors (far below target; see Claude engine)
+- [ ] **Validate on 50 real receipts from your properties** — 40 real Airtable PCK receipts tested. Typhoon: totals 74%, VAT 59%, invoice no. 32%, date ±60d 90%; Tesseract: totals 55%, VAT 38% (vendor ground truth only on 7 records — Airtable lookup field is empty)
 
 **Exit:** ≥90% field accuracy on a sample of 50 real Thai receipts.
 
