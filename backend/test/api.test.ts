@@ -2,22 +2,25 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import bcrypt from 'bcryptjs';
-import { openDb, newId, now } from '../src/db.js';
+import { PGlite } from '@electric-sql/pglite';
+import { migrate, newId, now, type Db } from '../src/db.js';
 import { createApp } from '../src/app.js';
 
 let server: Server;
 let base = '';
 
-function addUser(db: ReturnType<typeof openDb>, email: string) {
-  db.prepare('INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
+async function addUser(db: Db, email: string) {
+  await db.query('INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)', [
     newId(), email, 'Test', bcrypt.hashSync('pw123456', 4), now(),
-  );
+  ]);
 }
 
 before(async () => {
-  const db = openDb(':memory:');
-  addUser(db, 'a@test.com');
-  addUser(db, 'b@test.com');
+  // In-process Postgres, so tests exercise the same SQL that runs on Neon.
+  const db = new PGlite();
+  await migrate(db);
+  await addUser(db, 'a@test.com');
+  await addUser(db, 'b@test.com');
   server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as { port: number }).port}`;

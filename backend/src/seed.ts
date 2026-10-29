@@ -9,10 +9,12 @@ if (!email || !password) {
   process.exit(1);
 }
 
-const db = openDb(config.dbPath);
+const db = await openDb(config.databaseUrl);
 const hash = bcrypt.hashSync(password, 10);
-db.prepare(
-  `INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)
-   ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash, name = excluded.name`,
-).run(newId(), email.trim().toLowerCase(), name, hash, now());
+await db.query(
+  `INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)
+   ON CONFLICT (email) DO UPDATE SET password_hash = excluded.password_hash, name = excluded.name`,
+  [newId(), email.trim().toLowerCase(), name, hash, now()],
+);
 console.log(`User ${email} ready.`);
+process.exit(0);
