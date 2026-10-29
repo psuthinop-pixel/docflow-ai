@@ -24,8 +24,22 @@ const THAI_MONTHS: [RegExp, number][] = [
 const EN_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /** Convert Thai numerals to Arabic and normalise whitespace. */
+/**
+ * Some Thai PDFs embed legacy fonts whose text layer is TIS-620 bytes read as Latin-1
+ * ("ºÃÔÉÑ·" for "บริษัท"). Map those code points back to the Thai block.
+ */
+export function repairTis620(text: string): string {
+  const latin = (text.match(/[\u00a1-\u00fb\u03bc]/g) ?? []).length;
+  const thai = (text.match(/[\u0e01-\u0e5b]/g) ?? []).length;
+  if (latin < 20 || latin < thai) return text;
+  return text.replace(/[\u00a1-\u00fb\u03bc]/g, (c) => {
+    const code = c === '\u03bc' ? 0xb5 : c.charCodeAt(0); // some fonts map ต (0xB5) to Greek μ
+    return String.fromCharCode(0x0e01 + code - 0xa1);
+  });
+}
+
 export function normalizeText(text: string): string {
-  return text
+  return repairTis620(text)
     .replace(/[๐-๙]/g, (d) => String(THAI_DIGITS.indexOf(d)))
     .replace(/ํา/g, 'ำ') // นิคหิต + สระอา → สระอำ (common OCR / PDF split)
     .replace(/\r/g, '')
@@ -147,11 +161,49 @@ export function tidyCompanyName(name: string): string {
     .trim();
 }
 
+const BUYER_LABEL = /(ชื่อผู้ซื้อ|ผู้ซื้อ|ลูกค้า|customer|bill\s*to|sold\s*to|ship\s*to|buyer)/i;
+const SELLER_LABEL = /(ชื่อผู้ขาย|ผู้ขาย|ผู้ให้บริการ|seller|vendor|supplier)/i;
+
+/**
+ * Drop the buyer block (your own company on supplier invoices): from a buyer label to its
+ * tax ID line, at most 6 lines. Side-by-side layouts keep the text before the buyer label.
+ */
+function withoutBuyer(lines: string[]): string[] {
+  const out: string[] = [];
+  let skip = 0;
+  for (const line of lines) {
+    const m = line.match(BUYER_LABEL);
+    if (m && m.index !== undefined) {
+      const before = line.slice(0, m.index).trim();
+      if (before.length > 8) out.push(before);
+      skip = /\d{13}|\d[\d\s-]{15,}\d/.test(line) ? 0 : 6;
+      continue;
+    }
+    if (skip > 0) {
+      skip--;
+      if (/(\d[\s-]?){13}/.test(line.replace(/[^\d\s-]/g, ''))) skip = 0;
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** Remove signature/label prefixes and trailing tax-ID / phone / document-number noise. */
+function cleanVendorLine(line: string): string {
+  return line
+    .replace(/^.*?digitally\s+signed\s+by\s*/i, '')
+    .replace(/^[\s:：|.,-]+/, '')
+    .replace(/\s*(เลขประจำตัว|tax\s*id|โทร|tel\.?|เลขที่|no\.|J\s*0\d|0\d{1,2}-\d{3}).*$/i, '')
+    .trim();
+}
+
 export function parseReceipt(raw: string): ReceiptFields {
   const text = normalizeText(raw);
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
-  const taxIds = findTaxIds(text);
+  const sellerLines = withoutBuyer(lines);
+  const taxIds = findTaxIds(sellerLines.join('\n'));
   const vendor_taxid = taxIds.find(isValidThaiTaxId) ?? taxIds[0] ?? '';
 
   const invoice_number = findInvoiceNumber(lines, vendor_taxid);
@@ -161,17 +213,21 @@ export function parseReceipt(raw: string): ReceiptFields {
     /(ยอดสุทธิ|รวมทั้งสิ้น|ยอดรวมสุทธิ|จำนวนเงินรวม|รวมภาษีมูลค่าเพิ่ม|baht\s*\(?\s*vat\s*incl|grand\s*total|net\s*total|total\s*amount|amount\s*due|^total\b|\btotal\b)/i,
     /(sub\s*total|ก่อน\s*vat|before\s*vat|ไม่รวม)/i,
   );
-  const tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|excl|ราคารวม|incl|ผู้เสียภาษี|ประจำตัว|tax\s*id)/i);
+  let tax_amount = amountAfter(lines, /(ภาษีมูลค่าเพิ่ม|vat|ภาษี)/i, /(ก่อน|before|ไม่รวม|excl|ราคารวม|incl|ผู้เสียภาษี|ประจำตัว|tax\s*id)/i);
+  // A VAT amount is never larger than the total; such hits are document or ID numbers.
+  if (tax_amount !== null && total !== null && tax_amount >= total) tax_amount = null;
   const subtotal = amountAfter(lines, /(sub\s*total|ก่อน\s*vat|before\s*vat|มูลค่าสินค้า|ราคาไม่รวม|รวมเงิน)/i);
 
   // Vendor: first line that looks like a company name, else the first non-numeric line.
+  const labelled = sellerLines.find((l) => SELLER_LABEL.test(l));
   const vendorLine =
-    lines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|บมจ\.|co\.,?\s*ltd|company|limited|public)/i.test(l)) ??
+    (labelled ? labelled.replace(new RegExp(`^.*?${SELLER_LABEL.source}\\s*[:：]?\\s*`, 'i'), '') || undefined : undefined) ??
+    sellerLines.find((l) => /(บริษัท|ห้างหุ้นส่วน|หจก\.|บจก\.|บมจ\.|co\.,?\s*ltd|company|limited|public)/i.test(l)) ??
     // State enterprises and agencies: การทางพิเศษแห่งประเทศไทย, การไฟฟ้านครหลวง, กรม..., องค์การ...
-    lines.find((l) => /(^การ[ก-๙]{3,}|^องค์การ|^กรม[ก-๙]|^สำนักงาน[ก-๙]|แห?่?งประเทศไทย|มหาวิทยาลัย|โรงพยาบาล)/.test(l)) ??
-    lines.find((l) => (l.match(/[A-Za-zก-๙]/g) ?? []).length >= 6 && !/(ใบเสร็จ|ใบกำกับ|ใบรับ|receipt|invoice|tax)/i.test(l)) ??
+    sellerLines.find((l) => /(^การ[ก-๙]{3,}|^องค์การ|^กรม[ก-๙]|^สำนักงาน[ก-๙]|แห?่?งประเทศไทย|มหาวิทยาลัย|โรงพยาบาล)/.test(l)) ??
+    sellerLines.find((l) => (l.match(/[A-Za-zก-๙]/g) ?? []).length >= 6 && !/(ใบเสร็จ|ใบกำกับ|ใบรับ|receipt|invoice|tax)/i.test(l)) ??
     '';
-  const vendor_name = tidyCompanyName(vendorLine.replace(/\s*(\((?!มหาชน).*\)|สำนักงานใหญ่|head\s*office)\s*$/i, '').trim());
+  const vendor_name = tidyCompanyName(cleanVendorLine(vendorLine).replace(/\s*(\((?!มหาชน).*\)|สำนักงานใหญ่|head\s*office)\s*$/i, '').trim());
 
   const addrIdx = lines.findIndex((l) => /(ถนน|ถ\.|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|กรุงเทพ|road|bangkok|\b\d{5}\b)/i.test(l));
   const vendor_address = addrIdx >= 0

@@ -18,6 +18,21 @@ const core = (s: string) =>
     .replace(/\(.*?\)|สาขา.*$|สำนักงานใหญ่|บริษัท|จำ\s*า?กัด|มหาชน|ห้างหุ้นส่วน|limited|ltd\.?|co\.,?|public|company|pbc|\(thailand\)|thailand/g, '')
     .replace(/[^a-z0-9ก-๙]/g, '');
 
+// Records logged under a brand name; the document carries the legal name.
+const ALIASES: Record<string, RegExp> = {
+  ais: /แอดวานซ์ไวร์เลส|advanced\s*wireless/i, '3bb': /ทริปเปิลที|triple\s*t/i, nt: /โทรคมนาคมแห่งชาติ|national\s*telecom/i,
+  ค่าทางด่วน: /การทางพิเศษ|ทางยกระดับ|ทางด่วน|expressway|bem/i, supperhomemart: /ซูเปอร์?โฮมมาร์?ท|super\s*home/i,
+  aiga: /ไอก้?าคาร์?โก้?|aiga/i, anthropic: /anthropic/i, famtime: /fam\s*time|แฟมไทม์/i,
+};
+// OCR commonly drops tone marks (เพมโก้ → เพมโก); compare without them.
+const loose = (s: string) => core(s).replace(/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/g, '');
+const vendorOk = (got: string, want: string) => {
+  const alias = ALIASES[core(want)] ?? (core(want) === 'superhomemart' ? ALIASES.supperhomemart : undefined);
+  if (alias) return alias.test(got);
+  const g = loose(got), w = loose(want);
+  return g.length > 2 && (g.includes(w) || w.includes(g));
+};
+
 const rows = readFileSync(path.join(dir, 'manifest.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const files = readdirSync(path.join(dir, 'files'));
 const score = { total: [0, 0], vendor: [0, 0], invoice: [0, 0], vat: [0, 0], date7: [0, 0] };
@@ -41,7 +56,7 @@ for (const r of rows) {
   };
   check('total', f.total !== null && Math.abs(f.total - r.total) < 0.01, `${f.total} vs ${r.total}`);
   const want = r.vfull ?? r.vendor ?? '';
-  if (want) check('vendor', !!core(f.vendor_name) && (core(want).includes(core(f.vendor_name)) || core(f.vendor_name).includes(core(want))), `${f.vendor_name} vs ${want}`);
+  if (want) check('vendor', vendorOk(f.vendor_name, want), `${f.vendor_name} vs ${want}`);
   // Order numbers like 251201 are record dates, not document numbers — skip those.
   if (r.order && !/^\d{6}$/.test(r.order)) check('invoice', f.invoice_number.toUpperCase() === r.order.toUpperCase(), `${f.invoice_number} vs ${r.order}`);
   if ((r.vatreg?.name ?? r.vatreg) === 'Yes') check('vat', f.tax_amount !== null && Math.abs(f.tax_amount - (r.total - r.exvat)) <= 0.05, `${f.tax_amount} vs ${(r.total - r.exvat).toFixed(2)}`);
