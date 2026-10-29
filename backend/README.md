@@ -16,9 +16,18 @@ Env: `DATABASE_URL` (**required**), `PORT` (8000), `JWT_SECRET` (**required in p
 
 ## Deploy (Vercel + Neon)
 
-Serverless entry is `api/index.ts`; `vercel.json` sends every path to it and pins the region to `sin1` (Singapore, next to Neon).
+Two Vercel projects from this repo, each deploying and rolling back on its own:
 
-1. Vercel → New Project → import this repo → **Root Directory: `backend`**, Framework: Other.
+| Project | Root Directory | URL |
+|---|---|---|
+| `docflow-ai` (API) | `backend` | `https://docflow-ai-serve-property.vercel.app` |
+| frontend (static) | `/` | its URL goes in the API's `CORS_ORIGINS` |
+
+The frontend's `config.js` uses `http://localhost:8000` on localhost and the API URL above everywhere else; change it there if the API project is renamed. The root `.vercelignore` keeps `backend/` out of the frontend deploy.
+
+The API's serverless entry is `api/index.ts`; `vercel.json` sends every path to it and pins the region to `sin1` (Singapore, next to Neon). If `DATABASE_URL` or `JWT_SECRET` is missing, every request returns a 500 naming the missing variables.
+
+1. API project → **Root Directory: `backend`**, Framework: Other.
 2. Environment variables: `DATABASE_URL` (Neon **pooled** string), `JWT_SECRET` (long random), `CORS_ORIGINS` (frontend URL), `NODE_ENV=production`.
 3. Deploy, then check `https://<project>.vercel.app/health` → `{"ok":true}`.
 4. The schema is not migrated on cold start. After a schema change, run `DATABASE_URL=… npm run migrate`.
