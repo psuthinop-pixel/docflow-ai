@@ -94,3 +94,45 @@ window.SystemApi = {
         return await response.json();
     }
 };
+
+// DocFlow AI - Organization members
+window.MemberApi = {
+    async request(method, orgId, path = '', body) {
+        const token = localStorage.getItem('docflow-auth');
+        if (!token) throw new Error('No auth token found');
+
+        const response = await fetch(`${window.docflow_url}/organizations/${encodeURIComponent(orgId)}/members${path}`, {
+            method,
+            headers: {
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+                'Authorization': `Bearer ${token}`
+            },
+            body: body ? JSON.stringify(body) : undefined
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+            throw new Error(error.detail || 'Request failed');
+        }
+
+        return response.status === 204 ? null : await response.json();
+    },
+
+    /** @returns {Promise<Array>} [{ user_id, name, email, role }] */
+    list(orgId) {
+        return this.request('GET', orgId);
+    },
+
+    /** @returns {Promise<Object>} the new member; `temporary_password` is set when an account was created */
+    add(orgId, { email, name, role }) {
+        return this.request('POST', orgId, '', { email, name, role });
+    },
+
+    setRole(orgId, userId, role) {
+        return this.request('PUT', orgId, `/${encodeURIComponent(userId)}`, { role });
+    },
+
+    remove(orgId, userId) {
+        return this.request('DELETE', orgId, `/${encodeURIComponent(userId)}`);
+    }
+};

@@ -119,3 +119,60 @@ test('system status reports the OCR engine without secrets', async () => {
   assert.equal(r.body.ocr.engines.tesseract, true);
   assert.equal(typeof r.body.ocr.engines.typhoon, 'boolean');
 });
+
+test('members: invite, roles, last-owner guard, leave, password change', async () => {
+  const a = await login('a@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Atrium Ratchada' })).body;
+  const path = `/organizations/${org._id}/members`;
+
+  // New email: account created with a one-time password, which works for login
+  const invited = await call('POST', path, a, { email: ' New.Person@Test.com ', name: 'Noi', role: 'admin' });
+  assert.equal(invited.status, 201);
+  assert.equal(invited.body.email, 'new.person@test.com');
+  assert.match(invited.body.temporary_password, /^[\w]{4}-[\w]{4}-[\w]{4}$/);
+  const n = (await call('POST', '/auth/login', undefined, { email: 'new.person@test.com', password: invited.body.temporary_password })).body.auth;
+  assert.ok(n);
+
+  // Existing account: added without a password; duplicates rejected
+  const b = await call('POST', path, a, { email: 'b@test.com' });
+  assert.equal(b.status, 201);
+  assert.equal(b.body.role, 'member');
+  assert.equal(b.body.temporary_password, undefined);
+  assert.equal((await call('POST', path, a, { email: 'b@test.com' })).status, 409);
+  assert.equal((await call('POST', path, a, { email: 'not-an-email' })).status, 400);
+  assert.equal((await call('POST', path, a, { email: 'x@test.com', role: 'boss' })).status, 400);
+
+  const list = (await call('GET', path, n)).body;
+  assert.deepEqual(list.map((m: { role: string }) => m.role), ['owner', 'admin', 'member']);
+  assert.equal(list[0].password_hash, undefined);
+
+  // Admin limits: cannot grant owner, cannot touch an owner
+  const ownerId = list[0].user_id;
+  assert.equal((await call('POST', path, n, { email: 'y@test.com', role: 'owner' })).status, 403);
+  assert.equal((await call('PUT', `${path}/${ownerId}`, n, { role: 'member' })).status, 403);
+  assert.equal((await call('DELETE', `${path}/${ownerId}`, n)).status, 403);
+  assert.equal((await call('PUT', `${path}/${b.body.user_id}`, n, { role: 'admin' })).status, 200);
+
+  // Members cannot manage; outsiders see nothing
+  const bTok = await login('b@test.com');
+  await call('PUT', `${path}/${b.body.user_id}`, a, { role: 'member' });
+  assert.equal((await call('POST', path, bTok, { email: 'z@test.com' })).status, 403);
+  const c = await login('c@test.com');
+  assert.equal((await call('GET', path, c)).status, 404);
+
+  // Last owner cannot be demoted or leave; after promoting another owner they can
+  assert.equal((await call('PUT', `${path}/${ownerId}`, a, { role: 'admin' })).status, 409);
+  assert.equal((await call('DELETE', `${path}/${ownerId}`, a)).status, 409);
+  assert.equal((await call('PUT', `${path}/${invited.body.user_id}`, a, { role: 'owner' })).status, 200);
+  assert.equal((await call('DELETE', `${path}/${ownerId}`, a)).status, 204);
+  assert.equal((await call('GET', path, a)).status, 404);
+
+  // A member may leave on their own
+  assert.equal((await call('DELETE', `${path}/${b.body.user_id}`, bTok)).status, 204);
+
+  // Password change
+  assert.equal((await call('POST', '/auth/password', n, { current_password: 'wrong', new_password: 'longenough' })).status, 400);
+  assert.equal((await call('POST', '/auth/password', n, { current_password: invited.body.temporary_password, new_password: 'short' })).status, 400);
+  assert.equal((await call('POST', '/auth/password', n, { current_password: invited.body.temporary_password, new_password: 'a-new-password' })).status, 200);
+  assert.equal((await call('POST', '/auth/login', undefined, { email: 'new.person@test.com', password: 'a-new-password' })).status, 200);
+});

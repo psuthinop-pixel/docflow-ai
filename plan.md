@@ -54,9 +54,24 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - **Integrations**: an honest "planned for Phase 3" list.
 - Backend tests: org edit permissions and validation, and system status. 19/19 pass.
 
+## ✅ Done, batch 4: Members
+- **Members** section in Settings: everyone in the property, with role and email. Owners and admins can add people, change roles and remove members. Anyone can leave.
+- Adding an email that already has an account adds that account directly. An unknown email gets a new account with a one-time temporary password (format `xxxx-xxxx-xxxx`), shown once with a "Copy message" button ready to paste into LINE. There is no email delivery yet.
+- Rules, enforced on the server and mirrored in the UI:
+  - Owners manage everyone.
+  - Admins manage admins and members, but can't touch owners or grant owner.
+  - Members can only leave.
+  - A property always keeps at least one owner.
+- **Change password** in Settings → Account, so invited people can replace the temporary password.
+- New API: `GET/POST /organizations/:id/members`, `PUT/DELETE /organizations/:id/members/:userId`, `POST /auth/password`. Covered by tests (20/20 pass).
+- Toasts no longer show two icons when the message starts with its own emoji.
+
 ## Still open
+- [ ] **Temporary passwords never expire, and nothing forces a change.** Add `must_change_password` on users, and show a "Set your password" screen after the first login. Changing a password also doesn't sign out the user's other sessions (tokens are revoked one at a time on logout).
+- [ ] **Email delivery for invites** (Resend, SES or similar) instead of copy-paste. This would also allow "forgot password", which today needs the seed script.
+- [ ] Adding someone reveals whether an email already has a DocFlow account. This is acceptable for a small team tool, but worth revisiting before outside users sign up.
+- [ ] Last-owner check is not atomic: two owners demoting each other at the same moment could leave none. Unlikely at this team size; fix with a transaction or a deferred constraint if it matters.
 - [ ] The mock pages (email, line, drive, reports) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
-- [ ] Members: there is no way to invite a user to a property or change roles. Needs membership endpoints and a Members section in Settings.
 - [ ] Renaming or removing a category doesn't touch existing expenses that use it. Decide whether to offer "rename everywhere".
 - [ ] Organization picker: currency shows "N/A" when the API omits it.
 - [ ] Topbar on phones: the avatar and theme toggle take about a third of the width. Now that Settings has a theme switch, consider moving the toggle there.

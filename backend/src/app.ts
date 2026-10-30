@@ -6,6 +6,7 @@ import { organizationsRouter } from './routes/organizations.js';
 import { expensesRouter } from './routes/expenses.js';
 import { receiptsRouter, type ReceiptOptions } from './routes/receipts.js';
 import { systemRouter } from './routes/system.js';
+import { membersRouter } from './routes/members.js';
 import multer from 'multer';
 
 const defaultReceipts: ReceiptOptions = { maxUploadMb: 10, ocrEngine: 'auto' };
@@ -17,6 +18,7 @@ export function createApp(db: Db, corsOrigins: string[] = [], receipts: ReceiptO
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
   app.use('/auth', authRouter(db));
+  app.use('/organizations/:id/members', membersRouter(db));
   app.use('/organizations', organizationsRouter(db));
   app.use('/expenses', expensesRouter(db));
   app.use('/receipts', receiptsRouter(db, receipts));

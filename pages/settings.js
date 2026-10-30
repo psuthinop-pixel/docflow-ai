@@ -29,11 +29,13 @@ window.SettingsPage = {
       <div class="page-header">
         <div class="page-header-left">
           <h1>⚙️ Settings</h1>
-          <p>Your property, how receipts are read, and your account</p>
+          <p>Your property, its members, how receipts are read, and your account</p>
         </div>
       </div>
 
       ${this.renderProperty()}
+
+      ${MembersSection.render(companyId)}
 
       <div class="settings-section">
         <div class="settings-title">🤖 Receipt reading (OCR)</div>
@@ -49,7 +51,16 @@ window.SettingsPage = {
           <div class="settings-row"><span>Email</span><strong>${esc(App.currentUser?.email || '—')}</strong></div>
           <div class="settings-row"><span>Role in ${esc(org?.organization_name || 'this property')}</span><strong style="text-transform:capitalize">${esc(org?.role || '—')}</strong></div>
         </div>
-        <button class="btn btn-secondary btn-sm" style="margin-top:16px" onclick="App.handleLogout()">🚪 Sign out</button>
+        <details class="password-change" style="margin-top:16px">
+          <summary class="btn btn-secondary btn-sm" style="display:inline-flex">🔑 Change password</summary>
+          <form style="display:grid;gap:10px;max-width:360px;margin-top:12px" onsubmit="event.preventDefault();SettingsPage.changePassword()">
+            <input class="form-input" id="pwCurrent" type="password" placeholder="Current (or temporary) password" autocomplete="current-password" required>
+            <input class="form-input" id="pwNew" type="password" placeholder="New password, at least 8 characters" autocomplete="new-password" minlength="8" required>
+            <input class="form-input" id="pwConfirm" type="password" placeholder="Repeat new password" autocomplete="new-password" minlength="8" required>
+            <button class="btn btn-primary btn-sm" type="submit" id="pwBtn" style="justify-self:start">Save new password</button>
+          </form>
+        </details>
+        <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="App.handleLogout()">🚪 Sign out</button>
       </div>
 
       <div class="settings-section">
@@ -241,6 +252,27 @@ window.SettingsPage = {
         } catch (error) {
             App.showToast('error', '❌ ' + error.message, 4000);
             if (btn) { btn.disabled = false; btn.textContent = '💾 Save property'; }
+        }
+    },
+
+    async changePassword() {
+        const current = document.getElementById('pwCurrent').value;
+        const next = document.getElementById('pwNew').value;
+        if (next !== document.getElementById('pwConfirm').value) {
+            App.showToast('error', 'The new passwords do not match', 4000);
+            return;
+        }
+        const btn = document.getElementById('pwBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+        try {
+            await AuthApi.changePassword(current, next);
+            App.showToast('success', '🔑 Password changed');
+            ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => { document.getElementById(id).value = ''; });
+            document.querySelector('.password-change')?.removeAttribute('open');
+        } catch (error) {
+            App.showToast('error', '❌ ' + error.message, 4000);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Save new password'; }
         }
     },
 

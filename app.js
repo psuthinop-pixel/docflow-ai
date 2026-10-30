@@ -318,7 +318,9 @@ window.App = {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         const icons = { success: '✅', info: 'ℹ️', error: '❌' };
-        toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span style="flex:1">${esc(message)}</span>`;
+        // Many messages already start with their own emoji; don't add a second icon
+        const hasIcon = /^\p{Extended_Pictographic}/u.test(String(message));
+        toast.innerHTML = `${hasIcon ? '' : `<span>${icons[type] || 'ℹ️'}</span>`}<span style="flex:1">${esc(message)}</span>`;
         container.appendChild(toast);
         setTimeout(() => {
             toast.style.animation = 'slideOut 0.3s ease forwards';

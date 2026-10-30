@@ -1524,6 +1524,76 @@ input[type="checkbox"] {
     color: var(--text-secondary);
 }
 
+/* ─── Members ─── */
+.member-add {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr auto;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.member-role {
+    width: auto;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
+.invite-box {
+    border: 1px solid var(--green);
+    background: var(--green-soft);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+
+.invite-creds {
+    display: grid;
+    gap: 6px;
+    font-size: 0.82rem;
+}
+
+.invite-creds > div {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+}
+
+.invite-creds span {
+    color: var(--text-secondary);
+    min-width: 130px;
+}
+
+.invite-creds code {
+    font-size: 0.85rem;
+    font-weight: 600;
+    user-select: all;
+    word-break: break-all;
+}
+
+.password-change > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.password-change > summary::-webkit-details-marker {
+    display: none;
+}
+
+@media (max-width: 680px) {
+    .member-add {
+        grid-template-columns: 1fr;
+    }
+
+    .member-row {
+        flex-wrap: wrap;
+    }
+
+    .invite-creds > div {
+        flex-direction: column;
+        gap: 2px;
+    }
+}
+
 .form-input:disabled {
     opacity: 0.65;
     cursor: not-allowed;
