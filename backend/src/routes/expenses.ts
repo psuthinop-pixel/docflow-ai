@@ -64,7 +64,8 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
       if (!STATUSES.includes(String(v))) return `status must be one of ${STATUSES.join(', ')}`;
       out.status = String(v);
     } else {
-      out[key] = v == null ? '' : String(v);
+      // Text copied from a PDF text layer can carry NUL bytes, which Postgres rejects.
+      out[key] = v == null ? '' : String(v).replace(/\u0000/g, '');
     }
   }
   return out;
