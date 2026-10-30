@@ -179,14 +179,12 @@ window.App = {
         setTimeout(() => {
             content.innerHTML = this.previewBanner(page) + (pageRenderers[page] || pageRenderers.dashboard)();
             content.style.opacity = '1';
-            if (page === 'reports') setTimeout(() => ReportsPage.initCharts(), 100);
         }, 80);
     },
 
     // Pages still running on MockData: say so, so nobody mistakes sample figures for their own
     previewBanner(page) {
         const notes = {
-            reports: 'Reports show sample data until real reporting ships (Phase 2). Use the Dashboard for your actual figures.',
             email: 'Email intake is not connected yet — this page is a preview with sample messages.',
             line: 'The LINE bot is not connected yet — this page is a preview with sample messages.',
             drive: 'Google Drive filing is not connected yet — this page is a preview with sample files.',
@@ -205,8 +203,9 @@ window.App = {
     async refreshDraftCount() {
         const companyId = this.currentCompany;
         try {
-            const expenses = await ExpenseApi.listExpenses(companyId);
-            if (companyId === this.currentCompany) this.setDraftCount(expenses);
+            const m = thisMonth();
+            const summary = await ReportApi.summary(companyId, m, m);
+            if (companyId === this.currentCompany) this.setDraftCountFromSummary(summary);
         } catch (error) {
             console.error('Draft count refresh failed:', error);
         }
@@ -321,6 +320,12 @@ window.App = {
         this.updateSidebarBadges();
     },
 
+    // From a /reports/summary response (its status counts ignore the date range)
+    setDraftCountFromSummary(summary) {
+        this.draftCount = summary.status_counts.filter(x => x.status === 'draft').reduce((t, x) => t + x.count, 0);
+        this.updateSidebarBadges();
+    },
+
     updateSidebarBadges() {
         const badge = document.getElementById('receiptsBadge');
         if (badge) {
@@ -371,6 +376,14 @@ document.addEventListener('DOMContentLoaded', () => App.init());
         return res;
     };
 })();
+// Printed reports include the table views that are collapsed on screen
+window.addEventListener('beforeprint', () => {
+    document.querySelectorAll('details.table-view').forEach(d => { d.dataset.wasOpen = d.open; d.open = true; });
+});
+window.addEventListener('afterprint', () => {
+    document.querySelectorAll('details.table-view').forEach(d => { d.open = d.dataset.wasOpen === 'true'; });
+});
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') App.toggleSidebar(false);
 });
@@ -418,6 +431,41 @@ function orgColor(org) {
     let h = 0;
     for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return ORG_COLORS[h % ORG_COLORS.length];
+}
+
+// 'YYYY-MM' shifted by n months
+function monthAdd(ym, n) {
+    const d = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1));
+    return d.toISOString().slice(0, 7);
+}
+
+function thisMonth() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function fmtMonth(ym, opts = { month: 'short', year: 'numeric' }) {
+    return new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1).toLocaleDateString('en-GB', opts);
+}
+
+// ─── CSV export ───
+// Text cells from receipts are untrusted: they must never run as a spreadsheet formula,
+// and 13-digit tax IDs must keep their leading zero when Excel opens the file.
+function csvCell(value, { taxId = false, numeric = false } = {}) {
+    let s = String(value ?? '');
+    if (taxId && /^\d+$/.test(s)) return `="${s}"`;
+    if (!numeric && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// rows: array of arrays of already-encoded cells. BOM so Excel reads UTF-8 (Thai) correctly.
+function downloadCsv(filename, rows) {
+    const blob = new Blob(['\ufeff' + rows.map(r => r.join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename.replace(/[^\w\u0E00-\u0E7F.-]+/g, '_');
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 function sourceLabel(e) {

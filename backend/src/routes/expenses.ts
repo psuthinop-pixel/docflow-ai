@@ -91,8 +91,13 @@ export function expensesRouter(db: Db): Router {
     const orgId = req.query.organization_id;
     if (typeof orgId === 'string' && orgId) {
       if (!(await membershipRole(db, req.user!.id, orgId))) return res.status(403).json({ detail: 'Not a member of this organization' });
+      // ?sort=updated lists the most recently changed first (activity feeds); ?limit caps the rows
+      const order = req.query.sort === 'updated' ? 'updated_at DESC' : 'date DESC NULLS LAST, created_at DESC';
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? ''), 10) || 0, 0), 500);
       const rows = await all<ExpenseRow>(
-        db, 'SELECT * FROM expenses WHERE organization_id = $1 ORDER BY date DESC NULLS LAST, created_at DESC', [orgId],
+        db,
+        `SELECT * FROM expenses WHERE organization_id = $1 ORDER BY ${order}${limit ? ` LIMIT ${limit}` : ''}`,
+        [orgId],
       );
       return res.json(rows.map(toApi));
     }

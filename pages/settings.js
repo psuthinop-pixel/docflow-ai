@@ -292,25 +292,11 @@ window.SettingsPage = {
                 ['Currency', 'currency'], ['Status', 'status'], ['Notes', 'notes'], ['Has original file', 'receipt_id'],
             ];
             const NUMERIC = ['subtotal', 'tax_amount', 'total'];
-            const cell = (k, v) => {
-                let s = String(v ?? '');
-                // Keep the leading zero of 13-digit tax IDs when Excel opens the file
-                if (k === 'vendor_taxid' && /^\d+$/.test(s)) return `="${s}"`;
-                // OCR'd text must never run as a spreadsheet formula
-                if (!NUMERIC.includes(k) && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
-                return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-            };
-            const lines = [cols.map(c => c[0]).join(',')].concat(rows.map(r => cols.map(([, k]) =>
-                cell(k, k === 'receipt_id' ? (r.receipt_id ? 'yes' : 'no') : k === 'date' ? String(r.date || '').slice(0, 10) : r[k])
-            ).join(',')));
-            // BOM so Excel opens the file as UTF-8 and Thai vendor names stay readable
-            const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-            const name = (this.org()?.organization_name || 'docflow').replace(/[^\w฀-๿-]+/g, '_');
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `${name}_expenses_${new Date().toISOString().slice(0, 10)}.csv`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            const value = (r, k) => k === 'receipt_id' ? (r.receipt_id ? 'yes' : 'no') : k === 'date' ? String(r.date || '').slice(0, 10) : r[k];
+            downloadCsv(`${this.org()?.organization_name || 'docflow'}_expenses_${new Date().toISOString().slice(0, 10)}.csv`, [
+                cols.map(c => csvCell(c[0])),
+                ...rows.map(r => cols.map(([, k]) => csvCell(value(r, k), { taxId: k === 'vendor_taxid', numeric: NUMERIC.includes(k) }))),
+            ]);
             App.showToast('success', `⬇ Exported ${rows.length} record${rows.length === 1 ? '' : 's'}`);
         } catch (error) {
             App.showToast('error', '❌ Export failed: ' + error.message, 4000);

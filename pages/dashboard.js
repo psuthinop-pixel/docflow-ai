@@ -7,12 +7,22 @@ window.DashboardPage = {
     async loadData(companyId) {
         this.loading = true;
         this.error = null;
+        const now = thisMonth();
         try {
-            this.expenses = await window.ExpenseApi.listExpenses(companyId);
-            App.setDraftCount(this.expenses);
+            // Totals come from the server (same definitions as Reports); only the two short lists are rows
+            const [current, previous, activity, recent] = await Promise.all([
+                ReportApi.summary(companyId, now, now),
+                ReportApi.summary(companyId, monthAdd(now, -1), monthAdd(now, -1)),
+                ExpenseApi.listExpenses(companyId, { limit: 5, sort: 'updated' }),
+                ExpenseApi.listExpenses(companyId, { limit: 8 }),
+            ]);
+            this.summary = { current, previous };
+            this.activity = activity.filter(e => e.status !== 'disabled');
+            this.recent = recent.filter(e => e.status !== 'disabled').slice(0, 6);
+            App.setDraftCountFromSummary(current);
         } catch (error) {
             console.error('Dashboard load failed:', error);
-            this.expenses = [];
+            this.summary = null;
             this.error = error.message || 'Could not load expenses';
         } finally {
             this.loading = false;
@@ -28,49 +38,26 @@ window.DashboardPage = {
         App.navigate('dashboard');
     },
 
-    // 'YYYY-MM' of the receipt date, falling back to when it was recorded
-    monthOf(e) {
-        return String(e.date || e.created_at || '').slice(0, 7);
-    },
-
-    monthKey(offset = 0) {
-        const d = new Date();
-        d.setDate(1);
-        d.setMonth(d.getMonth() + offset);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    },
-
     stats() {
-        const active = this.expenses.filter(e => e.status !== 'disabled');
-        const sum = (list, key = 'total') => list.reduce((s, e) => s + (parseFloat(e[key]) || 0), 0);
-        const thisMonth = active.filter(e => this.monthOf(e) === this.monthKey(0));
-        const lastMonth = active.filter(e => this.monthOf(e) === this.monthKey(-1));
-        const spend = sum(thisMonth);
-        const lastSpend = sum(lastMonth);
-
-        // Input VAT counts only reviewed records that carry a VAT amount;
-        // without the seller's 13-digit tax ID it cannot be claimed.
-        const vatRecords = thisMonth.filter(e => e.status !== 'draft' && parseFloat(e.tax_amount) > 0);
-        const claimable = vatRecords.filter(e => /^\d{13}$/.test(e.vendor_taxid || ''));
-
-        const byCategory = {};
-        thisMonth.forEach(e => {
-            const cat = e.category || 'Uncategorised';
-            byCategory[cat] = (byCategory[cat] || 0) + (parseFloat(e.total) || 0);
-        });
-
+        const { current, previous } = this.summary || { current: null, previous: null };
+        const sum = (list, k) => (list || []).reduce((t, x) => t + (x[k] || 0), 0);
+        const spend = sum(current?.by_month, 'spend');
+        const lastSpend = sum(previous?.by_month, 'spend');
+        const status = k => (current?.status_counts || []).filter(x => x.status === k).reduce((t, x) => t + x.count, 0);
+        const missing = (current?.vat_not_claimable || []).find(x => x.reason === 'missing_tax_id') || { count: 0 };
         return {
-            active,
             spend,
             lastSpend,
             change: lastSpend > 0 ? ((spend - lastSpend) / lastSpend) * 100 : null,
-            thisMonthCount: thisMonth.length,
-            drafts: active.filter(e => e.status === 'draft').length,
-            awaitingApproval: active.filter(e => e.status === 'confirmed').length,
-            vat: sum(claimable, 'tax_amount'),
-            vatCount: claimable.length,
-            vatMissingTaxId: vatRecords.length - claimable.length,
-            categories: Object.entries(byCategory).sort((a, b) => b[1] - a[1]),
+            thisMonthCount: sum(current?.by_month, 'count'),
+            drafts: status('draft'),
+            awaitingApproval: status('confirmed'),
+            vat: sum(current?.by_month, 'vat_claimable'),
+            vatCount: sum(current?.by_month, 'vat_claimable_count'),
+            vatMissingTaxId: missing.count,
+            categories: (current?.by_category || []).map(x => [x.category, x.spend]),
+            activity: this.activity || [],
+            recent: this.recent || [],
         };
     },
 
@@ -151,9 +138,7 @@ window.DashboardPage = {
             ? `${s.vatCount} tax invoice${s.vatCount === 1 ? '' : 's'} · ${s.vatMissingTaxId} missing tax ID`
             : `${s.vatCount} tax invoice${s.vatCount === 1 ? '' : 's'}`;
 
-        const recentActivity = [...s.active]
-            .sort((a, b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || '')))
-            .slice(0, 5);
+        const recentActivity = s.activity;
 
         const activityLabel = {
             draft: { icon: '📝', verb: 'Draft saved' },
@@ -249,14 +234,14 @@ window.DashboardPage = {
           </div>
           <button class="btn btn-ghost btn-sm" onclick="Pages.receiptsFiltered('all')">View All →</button>
         </div>
-        ${s.active.length === 0
+        ${s.recent.length === 0
             ? '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No expenses recorded yet.</div>'
             : `<div class="table-scroll"><table class="data-table">
           <thead><tr>
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Source</th><th>Status</th>
           </tr></thead>
           <tbody>
-            ${s.active.slice(0, 6).map(e => `<tr>
+            ${s.recent.map(e => `<tr>
                 <td>${esc(e.vendor_name)}</td>
                 <td style="color:var(--text-secondary)">${fmtDate(e.date)}</td>
                 <td style="font-weight:700;color:var(--text-primary)">${fmtTHB(e.total)}</td>

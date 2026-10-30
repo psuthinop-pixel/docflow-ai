@@ -8,7 +8,6 @@
     <meta name="description"
         content="AI-powered receipt reader, email scraper, LINE chatbot, Google Drive & Sheets integration for multi-company expense management.">
     <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -30,11 +29,11 @@
                     <span class="nav-icon">🧾</span> Receipts
                     <span class="nav-badge" id="receiptsBadge" style="display:none">0</span>
                 </button>
+                <button class="nav-item" data-page="reports" onclick="App.navigate('reports')">
+                    <span class="nav-icon">📈</span> Reports
+                </button>
 
                 <div class="sidebar-section-label">Coming soon</div>
-                <button class="nav-item nav-item-soon" data-page="reports" onclick="App.navigate('reports')">
-                    <span class="nav-icon">📈</span> Reports <span class="nav-soon">Preview</span>
-                </button>
                 <button class="nav-item nav-item-soon" data-page="email" onclick="App.navigate('email')">
                     <span class="nav-icon">📧</span> Email intake <span class="nav-soon">Soon</span>
                 </button>
@@ -92,7 +91,7 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ─── Background gradient ─── -->
-    <div style="position:fixed;inset:0;pointer-events:none;z-index:-1;
+    <div class="app-bg" style="position:fixed;inset:0;pointer-events:none;z-index:-1;
   background: radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,0.08) 0%, transparent 60%),
               radial-gradient(ellipse 60% 50% at 80% 80%, rgba(16,185,129,0.05) 0%, transparent 60%),
               var(--bg-base)">
@@ -105,6 +104,7 @@
     <script src="services/expenses.js"></script>
     <script src="services/organizations.js"></script>
     <script src="services/receipts.js"></script>
+    <script src="services/reports.js"></script>
     <script src="pages/login.js"></script>
     <script src="pages/set-password.js"></script>
     <script src="pages/select-organization.js"></script>

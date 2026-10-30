@@ -32,16 +32,18 @@ window.ExpenseApi = {
     /**
      * List expenses from the backend
      * @param {string} organizationId - Optional organization ID to filter by
+     * @param {Object} [opts] - { limit, sort: 'updated' } (organization lists only)
      * @returns {Promise<Array>} List of expenses
      */
-    async listExpenses(organizationId) {
+    async listExpenses(organizationId, { limit, sort } = {}) {
         const token = localStorage.getItem('docflow-auth');
         if (!token) throw new Error('No auth token found');
 
-        let url = `${window.docflow_url}/expenses`;
-        if (organizationId) {
-            url += `?organization_id=${organizationId}`;
-        }
+        const q = new URLSearchParams();
+        if (organizationId) q.set('organization_id', organizationId);
+        if (limit) q.set('limit', limit);
+        if (sort) q.set('sort', sort);
+        const url = `${window.docflow_url}/expenses${q.toString() ? `?${q}` : ''}`;
 
         const response = await fetch(url, {
             method: 'GET',

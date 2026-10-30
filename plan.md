@@ -76,22 +76,34 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - The `npm run seed` password reset clears the invite flag and signs out old sessions.
 - Tests: forced change, expiry, re-issue, other sessions signed out, no reset after setup. 21/21 pass.
 
+## ✅ Done, batch 6: Phase 2 reporting
+- `GET /reports/summary` gives totals by month, category and property for one property or **all** of the user's properties (up to 36 months). It also returns the current work queue and the VAT that can't be claimed yet, with the reason. `GET /reports/vat` lists one property-month for the accountant. Definitions live in one place: `backend/src/routes/reports.ts`.
+- **Reports page:**
+  - Choose this property or all properties, with presets: this month, 3, 6 or 12 months, this year, last year.
+  - Four cards: spend vs the previous equal period, average per month, claimable VAT, needs attention.
+  - Monthly column chart, stacked by property and coloured with each property's own colour, with a hover/focus tooltip and a table view.
+  - Categories (top 7 + Other), an input VAT panel, and a property comparison table.
+- **Exports:**
+  - Summary CSV in long format, one row per month and property, so it pivots in Excel.
+  - **Input VAT report** for a property-month: Thai/English headers, dd/mm/yyyy dates, tax IDs keep their leading zero, each row marked Claimable / Missing seller tax ID / Not reviewed, and a claimable total row.
+  - **Print / PDF** with a print stylesheet: always light, monthly table included.
+- Charts are HTML/CSS with no CDN dependency; the Chart.js script was removed.
+- The **Dashboard** now uses the same endpoint, so Dashboard and Reports can't disagree. It fetches only 5 + 8 rows for its lists instead of every expense. The sidebar draft badge uses the summary too.
+- On phones, summary cards show as a 2×2 grid.
+- Tests: summary maths, VAT rules, scoping across properties, range validation, `limit`/`sort`. 22/22 pass.
+
 ## Still open
+- [ ] **Confirm the input VAT report format with your accountant.** Do they want Buddhist-era dates (e.g. 03/09/2569), a head-office/branch column (สำนักงานใหญ่/สาขา, not captured yet), or .xlsx instead of CSV?
+- [ ] Capture the seller's **branch number** on receipts (it is printed on Thai tax invoices and required on the input tax report).
+- [ ] "Is a full tax invoice" isn't stored on expenses yet (`is_tax_invoice` is only detected at OCR time). Store it and require it for "claimable".
 - [ ] **Email delivery for invites** (Resend, SES or similar) instead of copy-paste. This would also allow a self-service "forgot password", which today needs `npm run seed` on the server.
 - [ ] Adding someone reveals whether an email already has a DocFlow account. This is acceptable for a small team tool, but worth revisiting before outside users sign up.
 - [ ] Last-owner check is not atomic: two owners demoting each other at the same moment could leave none. Unlikely at this team size.
 - [ ] Removing a member doesn't end their current session. They lose access to the property's data immediately, but stay signed in to any other properties they belong to (which is correct).
-- [ ] The mock pages (email, line, drive, reports) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
+- [ ] The mock pages (email, line, drive) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
 - [ ] Renaming or removing a category doesn't touch existing expenses that use it.
 - [ ] Organization picker: currency shows "N/A" when the API omits it.
 - [ ] Topbar on phones: consider moving the theme toggle into Settings only.
-
-## Phase 2 tie-in: move aggregation to the server
-- [ ] The dashboard aggregates every expense in the browser. Fine at hundreds of rows, slow at thousands. Add `GET /expenses/summary?organization_id&month` (spend, prior month, counts by status, VAT, by category) and use it for the KPIs.
-- [ ] Confirm the definitions with the accountant before relying on them for filing:
-  - "Spend" = non-disabled records, any status including draft, by **receipt date** (not upload date).
-  - "Input VAT" = confirmed/approved records with VAT > 0 **and** a 13-digit seller tax ID. Thai input VAT is claimable only on a full tax invoice, so also check `is_tax_invoice` once it is stored on the expense.
-- [ ] Rebuild Reports on real data (it is still `MockData`). Until then, the dashboard and Reports will disagree.
 
 ## P2: polish
 - [ ] Replace emoji icons with an SVG set (e.g. Lucide). Emoji render differently across OSes and in the LINE in-app browser.

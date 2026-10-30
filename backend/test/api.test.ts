@@ -229,3 +229,61 @@ test('invited account: must change password first, temp expiry, reset invite, ot
   // Once they chose their own password, nobody else can reset it
   assert.equal((await call('POST', `${path}/${inv.user_id}/reset-invite`, a)).status, 409);
 });
+
+test('reports: summary by month/category/property, VAT rules, scoping', async () => {
+  const a = await login('a@test.com');
+  const b = await login('b@test.com');
+  const o1 = (await call('POST', '/organizations', a, { organization_name: 'Hotel A' })).body;
+  const o2 = (await call('POST', '/organizations', a, { organization_name: 'Hotel B' })).body;
+  const add = (org: string, f: Record<string, unknown>) => call('POST', '/expenses', a, { organization_id: org, currency: 'THB', ...f });
+  const TAX = '0107537000521';
+  await add(o1._id, { status: 'approved', vendor_name: 'MEA', date: '2026-09-03', total: 1070, tax_amount: 70, vendor_taxid: TAX, category: 'Utilities', invoice_number: 'B2' });
+  await add(o1._id, { status: 'confirmed', vendor_name: 'Makro', date: '2026-09-01', total: 535, tax_amount: 35, vendor_taxid: TAX, category: 'Supplies', invoice_number: 'A1' });
+  await add(o1._id, { status: 'confirmed', vendor_name: 'Toll', date: '2026-09-10', total: 50, tax_amount: 3.27, vendor_taxid: '', category: 'Travel' });
+  await add(o1._id, { status: 'draft', vendor_name: 'Draft', date: '2026-10-02', total: 214, tax_amount: 14, vendor_taxid: TAX, category: '' });
+  await add(o1._id, { status: 'disabled', vendor_name: 'Ignored', date: '2026-09-05', total: 9999, tax_amount: 9 });
+  await add(o2._id, { status: 'approved', vendor_name: 'HomePro', date: '2026-10-15', total: 2140, tax_amount: 140, vendor_taxid: TAX, category: 'Repairs' });
+
+  const one = await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-10`, a);
+  assert.equal(one.status, 200);
+  assert.deepEqual(one.body.range, { from: '2026-09', to: '2026-10', months: 2 });
+  const sep = one.body.by_month.find((x: { month: string }) => x.month === '2026-09');
+  assert.equal(sep.spend, 1655);           // disabled excluded
+  assert.equal(sep.vat_claimable, 105);    // toll has no tax ID
+  assert.equal(sep.vat_claimable_count, 2);
+  assert.equal(sep.count, 3);
+  assert.equal(one.body.by_month.find((x: { month: string }) => x.month === '2026-10').spend, 214); // drafts count as spend
+  assert.equal(one.body.by_category[0].category, 'Utilities');
+  assert.ok(one.body.by_category.some((x: { category: string }) => x.category === 'Uncategorised'));
+  const gaps = Object.fromEntries(one.body.vat_not_claimable.map((x: { reason: string; vat: number }) => [x.reason, x.vat]));
+  assert.deepEqual(gaps, { missing_tax_id: 3.27, not_reviewed: 14 });
+  assert.equal(one.body.organizations.length, 1);
+
+  // All properties: both orgs, nothing from orgs the user is not in
+  const both = (await call('GET', '/reports/summary?organization_id=all&from=2026-09&to=2026-10', a)).body;
+  assert.ok(both.organizations.some((o: { id: string }) => o.id === o2._id));
+  assert.equal(both.by_month.filter((x: { organization_id: string }) => [o1._id, o2._id].includes(x.organization_id)).reduce((t: number, x: { spend: number }) => t + x.spend, 0), 1655 + 214 + 2140);
+  const bAll = (await call('GET', '/reports/summary?organization_id=all', b)).body;
+  assert.ok(!bAll.organizations.some((o: { id: string }) => o.id === o1._id));
+  assert.equal((await call('GET', `/reports/summary?organization_id=${o1._id}`, b)).status, 403);
+  assert.equal((await call('GET', '/reports/summary', a)).status, 400);
+  assert.equal((await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-10&to=2026-09`, a)).status, 400);
+  assert.equal((await call('GET', `/reports/summary?organization_id=${o1._id}&from=2020-01&to=2026-10`, a)).status, 400);
+
+  // VAT listing: one property and month, by date then invoice; flags the record that is not claimable
+  const recent = (await call('GET', `/expenses?organization_id=${o1._id}&limit=2`, a)).body;
+  assert.deepEqual(recent.map((x: { vendor_name: string }) => x.vendor_name), ['Draft', 'Toll']);
+  const makro = recent.length && (await call('GET', `/expenses?organization_id=${o1._id}`, a)).body.find((x: { vendor_name: string }) => x.vendor_name === 'Makro');
+  await new Promise((r) => setTimeout(r, 10));
+  await call('PUT', `/expenses/${makro._id}`, a, { notes: 'checked' });
+  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&sort=updated&limit=1`, a)).body[0].vendor_name, 'Makro');
+  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&limit=abc`, a)).body.length, 5);
+
+  const vat = await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-09`, a);
+  assert.equal(vat.status, 200);
+  assert.deepEqual(vat.body.map((x: { vendor_name: string }) => x.vendor_name), ['Makro', 'MEA', 'Toll']);
+  assert.deepEqual(vat.body.map((x: { claimable: boolean }) => x.claimable), [true, true, false]);
+  assert.equal(vat.body[0].subtotal, 500);
+  assert.equal((await call('GET', '/reports/vat?organization_id=all&month=2026-09', a)).status, 400);
+  assert.equal((await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-13`, a)).status, 400);
+});
