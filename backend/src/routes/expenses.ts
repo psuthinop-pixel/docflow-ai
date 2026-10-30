@@ -8,7 +8,13 @@ const APPROVERS = ['owner', 'admin'];
 const EDITABLE = [
   'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'date',
   'total', 'subtotal', 'tax_amount', 'currency', 'category', 'notes', 'invoice_number', 'receipt_id',
+  'fx_rate', 'total_thb', 'fx_rate_date', 'fx_source',
 ] as const;
+/** Exchange-rate inputs; only an owner or admin may set them. */
+const FX_INPUTS = ['fx_rate', 'total_thb', 'fx_rate_date', 'fx_source'];
+const FX_SOURCES = ['card_statement', 'bank', 'bot', 'manual'];
+/** Changing any of these means the THB amounts must be recalculated. */
+const FX_AFFECTING = ['currency', 'total', 'subtotal', 'tax_amount', ...FX_INPUTS];
 
 type ExpenseRow = Record<string, unknown> & { id: string; organization_id: string; status: string };
 
@@ -20,15 +26,34 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
     const v = body[key];
     if (key === 'subtotal' && (v === null || v === '')) { out.subtotal = null; continue; }
     if (key === 'receipt_id') { out.receipt_id = v ? String(v) : null; continue; }
+    if (key === 'currency') {
+      const c = v == null || v === '' ? 'THB' : String(v).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c)) return 'currency must be a 3-letter code such as THB or USD';
+      out.currency = c;
+      continue;
+    }
+    if (key === 'fx_rate' || key === 'total_thb') {
+      if (v === null || v === '') { out[key] = null; continue; }
+      const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[฿,\s]/g, ''));
+      if (!Number.isFinite(n) || n <= 0) return `${key} must be a positive number`;
+      out[key] = n;
+      continue;
+    }
+    if (key === 'fx_source') {
+      if (v === null || v === '') { out.fx_source = null; continue; }
+      if (!FX_SOURCES.includes(String(v))) return `fx_source must be one of ${FX_SOURCES.join(', ')}`;
+      out.fx_source = String(v);
+      continue;
+    }
     if (key === 'total' || key === 'tax_amount' || key === 'subtotal') {
       const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[฿,\s]/g, ''));
       if (!Number.isFinite(n)) return `${key} must be a number`;
       out[key] = n;
-    } else if (key === 'date') {
-      if (v === null || v === '') { out.date = null; continue; }
+    } else if (key === 'date' || key === 'fx_rate_date') {
+      if (v === null || v === '') { out[key] = null; continue; }
       const d = new Date(String(v));
-      if (isNaN(d.getTime())) return 'date is invalid';
-      out.date = d.toISOString();
+      if (isNaN(d.getTime())) return `${key} is invalid`;
+      out[key] = key === 'date' ? d.toISOString() : d.toISOString().slice(0, 10);
     } else if (key === 'status') {
       if (!STATUSES.includes(String(v))) return `status must be one of ${STATUSES.join(', ')}`;
       out.status = String(v);
@@ -42,6 +67,60 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
 const toApi = (e: ExpenseRow) => ({ ...e, _id: e.id });
 
 type Fields = Record<string, string | number | null>;
+
+const round = (n: number, dp = 2) => Math.round(n * 10 ** dp) / 10 ** dp;
+
+/**
+ * Fill in the THB amounts that reports add up. THB converts at 1. Other currencies stay pending
+ * (total_thb null) until an owner/admin enters the THB charged on the card statement, or the rate.
+ */
+function convert(prev: Partial<ExpenseRow>, fields: Fields, role: string, userId: string) {
+  if (prev.id && !FX_AFFECTING.some((k) => k in fields)) return null;
+  const row = { ...prev, ...fields } as Record<string, any>;
+  const total = Number(row.total ?? 0);
+  const tax = Number(row.tax_amount ?? 0);
+  const subtotal = row.subtotal == null ? null : Number(row.subtotal);
+
+  if (!row.currency || row.currency === 'THB') {
+    Object.assign(fields, {
+      fx_rate: 1, fx_rate_date: null, fx_source: null,
+      total_thb: total, subtotal_thb: subtotal, tax_amount_thb: tax,
+    });
+    return null;
+  }
+
+  const settingFx = FX_INPUTS.some((k) => k in fields);
+  if (settingFx && !APPROVERS.includes(role)) return { status: 403, detail: 'Only an owner or admin can set the exchange rate' };
+  // A rate entered for another currency no longer applies.
+  const currencyChanged = 'currency' in fields && prev.currency !== undefined && fields.currency !== prev.currency;
+  let rate = ('fx_rate' in fields ? fields.fx_rate : currencyChanged ? null : prev.fx_rate ?? null) as number | null;
+  let totalThb: number | null = null;
+  if (fields.total_thb != null) {
+    if (!(total > 0)) return { status: 400, detail: 'Enter the receipt total before the THB amount' };
+    totalThb = round(Number(fields.total_thb));
+    rate = round(totalThb / total, 6);
+  } else if (rate !== null) {
+    totalThb = round(total * rate);
+  }
+  Object.assign(fields, {
+    fx_rate: rate,
+    total_thb: totalThb,
+    subtotal_thb: rate !== null && subtotal !== null ? round(subtotal * rate) : null,
+    tax_amount_thb: rate !== null ? round(tax * rate) : null,
+  });
+  if (rate === null) Object.assign(fields, { fx_rate_date: null, fx_source: null });
+  else if (settingFx) fields.fx_source = fields.fx_source || 'card_statement';
+  if (settingFx || currencyChanged) Object.assign(fields, { fx_set_by: userId, fx_set_at: now() });
+  return null;
+}
+
+/** An approved expense must have its final THB amount. */
+function fxPendingApproval(prev: Partial<ExpenseRow>, fields: Fields) {
+  const row = { ...prev, ...fields } as Record<string, any>;
+  return row.status === 'approved' && (row.currency ?? 'THB') !== 'THB' && row.total_thb == null
+    ? { status: 400, detail: 'Enter the THB amount from the card statement before approving' }
+    : null;
+}
 
 export function expensesRouter(db: Db): Router {
   const r = Router();
@@ -114,7 +193,7 @@ export function expensesRouter(db: Db): Router {
     if (!role) return res.status(403).json({ detail: 'Not a member of this organization' });
     const fields = clean(body);
     if (typeof fields === 'string') return res.status(400).json({ detail: fields });
-    const problem = await checkWrite(orgId, role, fields);
+    const problem = (await checkWrite(orgId, role, fields)) ?? convert({}, fields, role, req.user!.id) ?? fxPendingApproval({}, fields);
     if (problem) return res.status(problem.status).json({ detail: problem.detail });
 
     if (body.allow_duplicate !== true) {
@@ -142,7 +221,8 @@ export function expensesRouter(db: Db): Router {
     if (existing.status === 'approved' && !APPROVERS.includes(role)) {
       return res.status(403).json({ detail: 'Approved expenses can only be changed by an owner or admin' });
     }
-    const problem = await checkWrite(existing.organization_id, role, fields);
+    const problem = (await checkWrite(existing.organization_id, role, fields))
+      ?? convert(existing, fields, role, req.user!.id) ?? fxPendingApproval(existing, fields);
     if (problem) return res.status(problem.status).json({ detail: problem.detail });
     if (fields.status === 'approved' && existing.status !== 'approved') {
       Object.assign(fields, { approved_by: req.user!.id, approved_at: now() });

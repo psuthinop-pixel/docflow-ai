@@ -52,6 +52,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Duplicate check: same file hash, or same seller tax ID + invoice number → warning on upload, 409 on save unless confirmed
 - [x] Review warnings: bad tax ID checksum, VAT not 7% of total, missing date/total, low OCR confidence
 - [x] Frontend: Receipts page uses server extraction; browser Tesseract and demo receipts removed
+- [x] Foreign-currency receipts (USD etc.): original amount kept, owner/admin enters THB from the card statement later; THB totals exclude FX-pending items; approval blocked until converted
 - [ ] **Validate on 50 real receipts from your properties** — 40 real Airtable PCK receipts tested. Typhoon: totals 74%, VAT 59%, invoice no. 32%, date ±60d 90%; Tesseract: totals 55%, VAT 38% (vendor ground truth only on 7 records — Airtable lookup field is empty)
 
 **Exit:** ≥90% field accuracy on a sample of 50 real Thai receipts.

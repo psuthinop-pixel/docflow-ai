@@ -43,6 +43,7 @@ async function extract(buf: Buffer, mime: string, categories: string[], setting:
       ...c,
       vendor_taxid: isValidThaiTaxId(taxid) || !isValidThaiTaxId(rules.vendor_taxid) ? taxid : rules.vendor_taxid,
       category: categories.includes(c.category) ? c.category : '',
+      currency: /^[A-Za-z]{3}$/.test(c.currency.trim()) ? c.currency.trim().toUpperCase() : rules.currency,
     };
     const { raw_text: _t, ...clean } = fields;
     return { engine, confidence: null, text: c.raw_text, fields: clean, warnings: validateFields(clean) };
