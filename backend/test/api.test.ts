@@ -75,6 +75,9 @@ test('full flow: org → expense CRUD, isolation, logout', async () => {
   assert.equal(updated.body.status, 'disabled');
   assert.equal(updated.body.total, 500);
   assert.equal((await call('PUT', `/expenses/${created.body._id}`, a, { status: 'weird' })).status, 400);
+  const nul = await call('PUT', `/expenses/${created.body._id}`, a, { notes: 'API\u0000 credits' });
+  assert.equal(nul.status, 200);
+  assert.equal(nul.body.notes, 'API credits');
 
   assert.equal((await call('GET', `/expenses?organization_id=${org._id}`, a)).body.length, 1);
   assert.equal((await call('DELETE', `/expenses/${created.body._id}`, a)).status, 204);
