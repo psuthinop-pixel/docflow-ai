@@ -55,6 +55,7 @@ window.App = {
                 this.draftCount = 0;
                 localStorage.setItem('docflow-company', this.currentCompany);
                 this.updateCompanyDot();
+                this.refreshDraftCount();
                 this.navigate(this.currentPage);
             });
         }
@@ -102,13 +103,8 @@ window.App = {
 
         // Hide sidebar and topbar on login & select-organization pages
         const isAuthPage = page === 'login' || page === 'select-organization';
-        const sidebar = document.querySelector('.sidebar');
-        const topbar = document.querySelector('.topbar');
-        const layout = document.querySelector('.app-layout');
-
-        if (sidebar) sidebar.style.display = isAuthPage ? 'none' : 'flex';
-        if (topbar) topbar.style.display = isAuthPage ? 'none' : 'flex';
-        if (layout) layout.style.gridTemplateColumns = isAuthPage ? '1fr' : 'var(--sidebar-w) 1fr';
+        document.body.classList.toggle('auth-page', isAuthPage);
+        this.toggleSidebar(false);
 
         const content = document.getElementById('mainContent');
         if (!content) return;
@@ -129,22 +125,25 @@ window.App = {
 
         // Update nav active state
         document.querySelectorAll('.nav-item').forEach(el => {
-            el.classList.toggle('active', el.dataset.page === page);
+            const active = el.dataset.page === page;
+            el.classList.toggle('active', active);
+            if (active) el.setAttribute('aria-current', 'page');
+            else el.removeAttribute('aria-current');
         });
 
-        // Update topbar title
         const titles = {
-            dashboard: { title: 'Dashboard', sub: 'Overview' },
-            receipts: { title: 'Receipts', sub: 'Upload & Review' },
-            email: { title: 'Email Scraper', sub: 'Inbox Automation' },
-            line: { title: 'LINE Chatbot', sub: 'Messaging Workflow' },
-            drive: { title: 'Google Drive', sub: 'File Automation' },
-            sheets: { title: 'Google Sheets', sub: 'Expense Database' },
-            reports: { title: 'Reports & Analytics', sub: 'Charts & Comparisons' },
-            settings: { title: 'Settings', sub: 'Configuration' },
+            dashboard: 'Dashboard',
+            receipts: 'Receipts',
+            email: 'Email intake',
+            line: 'LINE bot',
+            drive: 'Google Drive',
+            sheets: 'Google Sheets',
+            reports: 'Reports',
+            settings: 'Settings',
         };
-        const t = titles[page] || titles.dashboard;
-        document.getElementById('topbarTitle').innerHTML = `${t.title} <span>/ ${t.sub}</span>`;
+        const title = titles[page] || titles.dashboard;
+        document.getElementById('topbarTitle').textContent = title;
+        document.title = `${title} · DocFlow AI`;
 
         // Render page
         const pageRenderers = {
@@ -161,10 +160,40 @@ window.App = {
         content.innerHTML = '';
         content.style.opacity = '0';
         setTimeout(() => {
-            content.innerHTML = (pageRenderers[page] || pageRenderers.dashboard)();
+            content.innerHTML = this.previewBanner(page) + (pageRenderers[page] || pageRenderers.dashboard)();
             content.style.opacity = '1';
             if (page === 'reports') setTimeout(() => ReportsPage.initCharts(), 100);
         }, 80);
+    },
+
+    // Pages still running on MockData: say so, so nobody mistakes sample figures for their own
+    previewBanner(page) {
+        const notes = {
+            reports: 'Reports show sample data until real reporting ships (Phase 2). Use the Dashboard for your actual figures.',
+            email: 'Email intake is not connected yet — this page is a preview with sample messages.',
+            line: 'The LINE bot is not connected yet — this page is a preview with sample messages.',
+            drive: 'Google Drive filing is not connected yet — this page is a preview with sample files.',
+            sheets: 'The table below is your real data, but Google Sheets sync is not connected yet.',
+            settings: 'Settings are a preview: API keys and company changes here are not saved to the server yet.',
+        };
+        return notes[page] ? `<div class="preview-banner"><span>🚧</span><span>${notes[page]}</span></div>` : '';
+    },
+
+    toggleSidebar(open) {
+        const isOpen = open ?? !document.body.classList.contains('sidebar-open');
+        document.body.classList.toggle('sidebar-open', isOpen);
+        const btn = document.getElementById('menuToggle');
+        if (btn) btn.setAttribute('aria-expanded', String(isOpen));
+    },
+
+    async refreshDraftCount() {
+        const companyId = this.currentCompany;
+        try {
+            const expenses = await ExpenseApi.listExpenses(companyId);
+            if (companyId === this.currentCompany) this.setDraftCount(expenses);
+        } catch (error) {
+            console.error('Draft count refresh failed:', error);
+        }
     },
 
     updateUserPanel() {
@@ -262,11 +291,9 @@ window.App = {
         if (!dot) return;
 
         const org = this.organizations?.find(o => (o._id || o.id) === this.currentCompany);
-        if (org) {
-            dot.style.background = org.color || 'var(--accent)';
-        } else {
-            dot.style.background = 'var(--accent)';
-        }
+        const color = org ? orgColor(org) : 'var(--accent)';
+        dot.style.background = color;
+        document.documentElement.style.setProperty('--org-color', color);
         this.updateSidebarBadges();
     },
 
@@ -292,7 +319,7 @@ window.App = {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         const icons = { success: '✅', info: 'ℹ️', error: '❌' };
-        toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span style="flex:1">${message}</span>`;
+        toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span style="flex:1">${esc(message)}</span>`;
         container.appendChild(toast);
         setTimeout(() => {
             toast.style.animation = 'slideOut 0.3s ease forwards';
@@ -302,6 +329,9 @@ window.App = {
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') App.toggleSidebar(false);
+});
 
 // Page nav shortcuts
 window.Pages = {
@@ -336,6 +366,16 @@ function fmtDateTime(v) {
     const d = new Date(v);
     if (!v || isNaN(d)) return '—';
     return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// An organization's own colour, or a stable one picked from its id so each property is recognisable
+const ORG_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6', '#ef4444', '#84cc16'];
+function orgColor(org) {
+    if (/^#[0-9a-f]{3,8}$/i.test(org.color || '')) return org.color;
+    const id = String(org._id || org.id || '');
+    let h = 0;
+    for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return ORG_COLORS[h % ORG_COLORS.length];
 }
 
 function sourceLabel(e) {

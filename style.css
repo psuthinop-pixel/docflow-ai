@@ -63,6 +63,16 @@
     --glow: 0 0 20px rgba(99, 102, 241, 0.1);
 }
 
+/* The sidebar stays dark in the light theme, so it keeps light text */
+[data-theme="light"] .sidebar {
+    --text-primary: #f0f4ff;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border: rgba(255, 255, 255, 0.08);
+    --bg-card: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
 /* ─── Reset ─── */
 *,
 *::before,
@@ -190,6 +200,11 @@ ul {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: calc(100% - 20px);
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
     padding: 9px 20px;
     margin: 2px 10px;
     border-radius: var(--radius-sm);
@@ -208,6 +223,27 @@ ul {
 .nav-item.active {
     background: var(--accent-soft);
     color: var(--accent);
+}
+
+.nav-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.nav-item-soon:not(.active) {
+    opacity: 0.6;
+}
+
+.nav-soon {
+    margin-left: auto;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
 }
 
 .nav-item.active .nav-icon {
@@ -271,6 +307,7 @@ ul {
     gap: 8px;
     background: var(--bg-card);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--org-color, var(--accent));
     border-radius: var(--radius-sm);
     padding: 7px 12px;
     cursor: pointer;
@@ -282,7 +319,16 @@ ul {
     border-color: var(--border-active);
 }
 
+.company-switcher-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
 .company-dot {
+    flex-shrink: 0;
     width: 10px;
     height: 10px;
     border-radius: 50%;
@@ -1580,10 +1626,129 @@ input[type="checkbox"] {
     }
 
     .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: min(280px, 85vw);
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        z-index: 60;
+    }
+
+    body.sidebar-open .sidebar {
+        transform: none;
+    }
+
+    body.sidebar-open .sidebar-backdrop {
+        display: block;
+    }
+
+    .topbar .menu-toggle {
+        display: inline-flex;
+    }
+
+    .topbar {
+        padding: 0 12px;
+        gap: 8px;
+    }
+
+    .topbar-title,
+    .company-switcher-label,
+    .user-info {
         display: none;
+    }
+
+    .company-switcher {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .company-switcher select {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .main-content {
+        padding: 16px;
+    }
+
+    /* The empty "AI OCR Ready" panel only pushes the receipt list off-screen on phones */
+    #ocrPlaceholder {
+        display: none;
+    }
+
+    .page-header {
+        flex-wrap: wrap;
+        gap: 12px;
     }
 
     .grid-3 {
         grid-template-columns: 1fr;
     }
+}
+
+/* ─── Auth pages hide the app chrome ─── */
+body.auth-page .app-layout {
+    grid-template-columns: 1fr;
+}
+
+body.auth-page .sidebar,
+body.auth-page .topbar {
+    display: none;
+}
+/* ─── Mobile navigation ─── */
+.menu-toggle {
+    display: none;
+    font-size: 1.1rem;
+    padding: 6px 10px;
+}
+
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 55;
+}
+
+/* ─── Scrollable tables ─── */
+.table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll .data-table {
+    min-width: 640px;
+}
+
+/* ─── Loading skeletons ─── */
+.skeleton {
+    background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+    background-size: 200% 100%;
+    animation: skeletonPulse 1.4s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes skeletonPulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ─── Preview banner for pages on sample data ─── */
+.preview-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--amber);
+    background: var(--amber-soft);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+    .sidebar { transition: none; }
 }

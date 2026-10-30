@@ -46,7 +46,17 @@ window.SelectOrganizationPage = {
                     <input type="text" id="org_timezone" class="form-input" value="Asia/Bangkok" required>
                   </div>
               </div>
-              
+              <div class="form-group">
+                <label class="form-label">Colour <span style="color:var(--text-muted);font-weight:400">— shown next to the property name so you always know where you're posting</span></label>
+                <div style="display:flex; gap:8px; flex-wrap:wrap" role="radiogroup" aria-label="Organization colour">
+                  ${ORG_COLORS.map((c, i) => `
+                    <label style="cursor:pointer">
+                      <input type="radio" name="org_color" value="${c}" ${i === 0 ? 'checked' : ''} style="position:absolute;opacity:0" onchange="SelectOrganizationPage.markColor()">
+                      <span class="org-swatch" style="display:block;width:26px;height:26px;border-radius:50%;background:${c};border:3px solid ${i === 0 ? 'var(--text-primary)' : 'transparent'}"></span>
+                    </label>`).join('')}
+                </div>
+              </div>
+
               <div style="display:flex; gap: 12px; margin-top: 16px;">
                 <button type="button" class="btn btn-secondary" style="flex:1; justify-content:center;" onclick="SelectOrganizationPage.hideCreateForm()">Cancel</button>
                 <button type="submit" class="btn btn-primary" id="createOrgBtn" style="flex:1; justify-content:center;">Create & Join</button>
@@ -91,15 +101,15 @@ window.SelectOrganizationPage = {
       let html = '<div style="display:flex; flex-direction:column; gap:12px;">';
       orgs.forEach(org => {
         html += `
-                    <div class="org-card" onclick="SelectOrganizationPage.selectOrganization('${org._id || org.id}')" style="padding: 16px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s ease;">
+                    <button class="org-card" onclick="SelectOrganizationPage.selectOrganization('${esc(org._id || org.id)}')" style="width:100%; text-align:left; font:inherit; color:inherit; background:transparent; border-left: 4px solid ${orgColor(org)} !important; padding: 16px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s ease;">
                         <div>
-                            <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 4px;">${org.organization_name}</div>
+                            <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 4px;">${esc(org.organization_name)}</div>
                             <div style="font-size: 0.8rem; color: var(--text-muted);">
-                                Role: <strong>${org.role || 'Member'}</strong> • Currency: ${org.currency || 'N/A'}
+                                Role: <strong>${esc(org.role || 'Member')}</strong> • Currency: ${esc(org.currency || 'N/A')}
                             </div>
                         </div>
                         <div style="color: var(--accent); font-size: 1.2rem;">→</div>
-                    </div>
+                    </button>
                 `;
       });
       html += '</div>';
@@ -116,7 +126,7 @@ window.SelectOrganizationPage = {
       console.error('Failed to load organizations:', error);
       container.innerHTML = `
                 <div style="text-align:center; padding: 20px; color: var(--red);">
-                    ❌ Error loading organizations: ${error.message}
+                    ❌ Error loading organizations: ${esc(error.message)}
                     <button class="btn btn-secondary" style="margin-top:12px; margin-left:auto; margin-right:auto; justify-content:center" onclick="SelectOrganizationPage.loadOrganizations()">Retry</button>
                 </div>
             `;
@@ -129,6 +139,12 @@ window.SelectOrganizationPage = {
     await App.refreshOrganizations();
     App.showToast('success', 'Organization selected');
     App.navigate('dashboard');
+  },
+
+  markColor() {
+    document.querySelectorAll('input[name="org_color"]').forEach(input => {
+      input.nextElementSibling.style.borderColor = input.checked ? 'var(--text-primary)' : 'transparent';
+    });
   },
 
   showCreateForm() {
@@ -151,6 +167,7 @@ window.SelectOrganizationPage = {
     const orgName = document.getElementById('org_name').value;
     const currency = document.getElementById('org_currency').value;
     const timezone = document.getElementById('org_timezone').value;
+    const color = document.querySelector('input[name="org_color"]:checked')?.value || null;
 
     btn.disabled = true;
     btn.textContent = '⏳ Creating...';
@@ -161,6 +178,7 @@ window.SelectOrganizationPage = {
         organization_name: orgName,
         currency: currency,
         timezone: timezone,
+        color: color,
         categories: ['Office Supplies', 'Transport', 'Software', 'Meals'] // Default categories
       });
 

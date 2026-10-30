@@ -25,19 +25,32 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - Money is always shown with 2 decimals (฿1,250.50). Dates use the `DD MMM YYYY` format, parsed without a timezone shift.
 - Renamed "OCR Receipt Reader" to "Receipts" in the nav, title and page header.
 
-## Next: P1 navigation (about half a day)
-- [ ] Tag Email / LINE / Drive / Sheets in the sidebar as **Soon** and grey them out, or hide them behind a flag until Phase 3. They still run on `MockData` (`index.html`, `pages/email.js`, `line.js`, `drive.js`, `sheets.js`).
-- [ ] Give Google Sheets its own icon. It currently uses 📊, the same as Dashboard (`index.html`).
-- [ ] Remove the topbar breadcrumb ("Dashboard / Overview") or make it say something the H1 doesn't (`app.js` `titles`).
-- [ ] Make the property switcher more prominent: a distinct colour per organization (`org.color` is already supported by `updateCompanyDot`) and a coloured strip or label in the page header. Wrong-property posting is the costliest mistake.
-- [ ] Remove the stale "v1.0 · Feb 2026" stamp, or generate it at build time (`index.html`).
+## ✅ Done, batch 2: navigation, correctness, mobile
 
-## Next: correctness gaps found while implementing
-- [ ] The Receipts page shows "Tesseract (Thai + English)" for every engine except Claude, including Typhoon (`pages/receipts.js` `renderOcrResult`). Show the real `engine`.
-- [ ] Receipts only refetches when the organization changes. Data approved or uploaded elsewhere stays stale until a reload. Refetch on each visit, or after a short TTL (`ReceiptsPage.render`).
-- [ ] The draft badge resets to 0 when switching organization while on a mock page, and refills only when Dashboard or Receipts loads. Fetch the count on switch (`app.js` switcher handler).
-- [ ] The mock pages (email, line, drive, sheets, reports, settings) still put data into `innerHTML` without `esc()`. Low risk while the data is mock, but must be fixed before they go live.
-- [ ] Toast messages are put into `innerHTML` (`App.showToast`). Some contain server error text, so escape them.
+**Navigation**
+- The sidebar has two groups: **Workspace** (Dashboard, Receipts) and **Coming soon** (Reports "Preview"; Email, LINE, Drive and Sheets "Soon"), with the mock pages dimmed.
+- Every page still on sample data shows a 🚧 banner saying so. This covers Reports, Email, LINE, Drive and Settings; on Sheets the banner says the table is real but sync is not connected yet.
+- Nav items are `<button>`s: keyboard focusable, with `aria-current` on the active page. The browser tab title follows the page.
+- Sheets has its own icon (🗂️). Removed the topbar breadcrumb and the stale version stamp.
+- **Property visibility:** the switcher is labelled "Property" and has a left strip in the property's colour. The dashboard H1 shows a matching dot, and the organization picker shows a colour strip on each card. Properties without a saved colour get a stable one derived from their id. The create form has a colour picker, which saves `color` through the existing API. Colours are validated as hex before use in `style`.
+
+**Correctness**
+- The OCR panel names the real engine (Typhoon / Tesseract / Claude).
+- Receipts refetches on every visit and keeps the current rows on screen while the same property reloads.
+- The draft badge refreshes when you switch property, from any page.
+- Toast messages are escaped. The Sheets table (real data) and the organization picker escape their text and use the shared money and date formats. Sheets shows VAT instead of the raw organization id.
+- Layout no longer sets the sidebar's `display` inline; it uses a body class, so the mobile CSS works.
+
+**Mobile and theme**
+- Below 680px: a ☰ button opens the sidebar as a drawer. It closes on backdrop tap, Esc or navigation. The property switcher takes the topbar width, tables scroll horizontally, and the empty "AI OCR Ready" panel is hidden.
+- Light theme: the sidebar stays dark, so it now keeps light text (it was nearly invisible).
+- Skeleton loaders on Dashboard and Receipts, and `prefers-reduced-motion` is respected.
+
+## Still open
+- [ ] The mock pages (email, line, drive, reports, settings) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
+- [ ] Settings shows OpenAI/Gmail key fields that do nothing, and the OCR model list doesn't match the real engines. Remove them or replace them with read-only server status (which engine is active, whether Typhoon is configured).
+- [ ] Organization picker: currency shows "N/A" when the API omits it. There is also no way to edit an existing property's name or colour (needs `PUT /organizations/:id`).
+- [ ] Topbar on phones: the avatar and theme toggle take about a third of the width. Consider moving the theme toggle into the user menu.
 
 ## Phase 2 tie-in: move aggregation to the server
 - [ ] The dashboard aggregates every expense in the browser. Fine at hundreds of rows, slow at thousands. Add `GET /expenses/summary?organization_id&month` (spend, prior month, counts by status, VAT, by category) and use it for the KPIs.
@@ -46,16 +59,14 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
   - "Input VAT" = confirmed/approved records with VAT > 0 **and** a 13-digit seller tax ID. Thai input VAT is claimable only on a full tax invoice, so also check `is_tax_invoice` once it is stored on the expense.
 - [ ] Rebuild Reports on real data (it is still `MockData`). Until then, the dashboard and Reports will disagree.
 
-## P2: polish and accessibility
+## P2: polish
 - [ ] Replace emoji icons with an SVG set (e.g. Lucide). Emoji render differently across OSes and in the LINE in-app browser.
-- [ ] Make sidebar nav items `<a>`/`<button>` instead of `<div onclick>`, so they work with the keyboard (`index.html`).
-- [ ] Use skeleton loaders instead of the "📊 Loading Dashboard..." flash on each organization switch.
-- [ ] Light theme pass: check KPI accent colours, filter chips and the error card for contrast.
-- [ ] Mobile pass (≤680px): KPI grid, tables (horizontal scroll or card rows), sidebar collapse.
+- [ ] Light theme: check KPI accent colours and the badges for WCAG AA contrast.
+- [ ] Mobile: consider card rows instead of horizontally scrolling tables for Receipts, the most-used page on a phone.
 
 ## How to check the dashboard locally
 ```
 make run-dev        # static frontend on :3000
 make run-backend    # API on :8000
 ```
-Check these states: an organization with no expenses (empty state), the API stopped (error card plus Retry), and a mix of draft/confirmed/approved/disabled records, both this month and last month.
+Check these states at desktop width and at 390px, in both themes: an organization with no expenses (empty state), the API stopped (error card plus Retry), and a mix of draft/confirmed/approved/disabled records, both this month and last month.

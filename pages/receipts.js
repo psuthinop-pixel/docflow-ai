@@ -9,11 +9,11 @@ window.ReceiptsPage = {
   statusFilter: 'all',
 
   render(companyId) {
-    if (!this.initialized || this.lastCompanyId !== companyId) {
-      this.initialized = true;
-      this.lastCompanyId = companyId;
-      this.loadExpenses(companyId);
-    }
+    // Refetch on every visit so approvals and uploads made elsewhere show up;
+    // keep the current rows on screen while the same property reloads
+    if (this.lastCompanyId !== companyId) this.expenses = [];
+    this.lastCompanyId = companyId;
+    this.loadExpenses(companyId);
 
     return `
       <div class="page-header">
@@ -79,7 +79,7 @@ window.ReceiptsPage = {
         <div class="card-header">
           <div>
             <div class="card-title">💳 Processed Receipts</div>
-            <div class="card-subtitle" id="expensesSubtitle">${this.expenses.length} records</div>
+            <div class="card-subtitle" id="expensesSubtitle">${this.recordCount()}</div>
           </div>
         </div>
         <div class="filter-chips" id="statusFilterChips">${this.renderFilterChips()}</div>
@@ -100,6 +100,11 @@ window.ReceiptsPage = {
     }).join('');
   },
 
+  recordCount() {
+    const n = this.expenses.length;
+    return `${n} record${n === 1 ? '' : 's'}`;
+  },
+
   setFilter(status) {
     this.statusFilter = status;
     this.refreshList();
@@ -111,11 +116,13 @@ window.ReceiptsPage = {
     const chips = document.getElementById('statusFilterChips');
     if (chips) chips.innerHTML = this.renderFilterChips();
     const subtitle = document.getElementById('expensesSubtitle');
-    if (subtitle) subtitle.textContent = `${this.expenses.length} records`;
+    if (subtitle) subtitle.textContent = this.recordCount();
   },
 
   renderExpensesTable() {
-    if (this.loading) return '<div style="padding:20px;text-align:center">Loading expenses...</div>';
+    if (this.loading && this.expenses.length === 0) {
+      return [1, 2, 3].map(() => '<div class="skeleton" style="height:40px;margin-bottom:10px"></div>').join('');
+    }
     if (this.loadError) return `<div style="padding:20px;text-align:center;color:var(--red)">⚠️ Couldn't load expenses: ${esc(this.loadError)} <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="ReceiptsPage.loadExpenses(App.currentCompany)">↻ Retry</button></div>`;
     if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts yet — upload one above.</div>';
 
@@ -126,7 +133,7 @@ window.ReceiptsPage = {
     if (rows.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Nothing here — no records with this status.</div>';
 
     return `
-        <table class="data-table">
+        <div class="table-scroll"><table class="data-table">
           <thead><tr>
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
@@ -153,7 +160,7 @@ window.ReceiptsPage = {
             </tr>`;
             }).join('')}
           </tbody>
-        </table>
+        </table></div>
     `;
   },
 
@@ -190,7 +197,7 @@ window.ReceiptsPage = {
     const field = (name, label, value, attrs = '') =>
       `<div class="ocr-field"><div class="ocr-field-label">${label}</div><input class="ocr-field-input" data-field="${name}" value="${esc(value)}" ${attrs}></div>`;
     const cats = this.categories();
-    const engine = r.engine === 'claude' ? 'Claude' : 'Tesseract (Thai + English)';
+    const engine = { claude: 'Claude', typhoon: 'Typhoon OCR', tesseract: 'Tesseract (Thai + English)' }[r.engine] || r.engine || 'OCR';
     return `
     <div class="ocr-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
@@ -401,7 +408,6 @@ window.ReceiptsPage = {
       this.ocrDone = false;
       this.ocrResult = null;
       this.currentFile = null;
-      this.initialized = false; // Trigger reload
       App.navigate('receipts');
     } catch (error) {
       if (error.status === 409 && !allowDuplicate) {

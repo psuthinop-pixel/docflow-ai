@@ -74,6 +74,21 @@ window.DashboardPage = {
         };
     },
 
+    renderSkeleton() {
+        const block = (h, w = '100%', mb = 0) => `<div class="skeleton" style="height:${h}px;width:${w};margin-bottom:${mb}px"></div>`;
+        return `
+      <div class="page-header" aria-busy="true" aria-label="Loading dashboard">
+        <div class="page-header-left">${block(28, '220px', 8)}${block(14, '260px')}</div>
+      </div>
+      <div class="kpi-grid">
+        ${[1, 2, 3, 4].map(() => `<div class="kpi-card">${block(40, '40px', 14)}${block(12, '60%', 10)}${block(28, '70%', 10)}${block(12, '50%')}</div>`).join('')}
+      </div>
+      <div class="grid-2-1">
+        <div class="card">${[1, 2, 3, 4].map(() => block(44, '100%', 12)).join('')}</div>
+        <div class="card">${[1, 2, 3].map(() => block(28, '100%', 14)).join('')}</div>
+      </div>`;
+    },
+
     kpi({ color, icon, label, value, note, noteStyle = '', status }) {
         return `
         <button class="kpi-card kpi-card-link" style="--kpi-color:var(--${color});--kpi-bg:var(--${color}-soft)"
@@ -91,9 +106,7 @@ window.DashboardPage = {
             this.loadData(companyId);
         }
 
-        if (this.loading && !isLoaded) {
-            return '<div style="display:flex;align-items:center;justify-content:center;height:60vh;font-size:1.5rem">📊 Loading Dashboard...</div>';
-        }
+        if (this.loading && !isLoaded) return this.renderSkeleton();
 
         const s = this.stats();
         const org = (App.organizations || []).find(o => (o._id || o.id) === companyId);
@@ -103,7 +116,10 @@ window.DashboardPage = {
         return `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>📊 ${esc(org ? org.organization_name : 'Dashboard')}</h1>
+          <h1 style="display:flex;align-items:center;gap:10px">
+            <span class="company-dot" style="width:12px;height:12px;background:${org ? orgColor(org) : 'var(--accent)'}"></span>
+            ${esc(org ? org.organization_name : 'Dashboard')}
+          </h1>
           <p>${monthName} · what needs your attention</p>
         </div>
         <button class="btn btn-primary btn-sm" onclick="Pages.receipts()">📤 Upload Receipt</button>
@@ -235,7 +251,7 @@ window.DashboardPage = {
         </div>
         ${s.active.length === 0
             ? '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No expenses recorded yet.</div>'
-            : `<table class="data-table">
+            : `<div class="table-scroll"><table class="data-table">
           <thead><tr>
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Source</th><th>Status</th>
           </tr></thead>
@@ -249,7 +265,7 @@ window.DashboardPage = {
                 <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
               </tr>`).join('')}
           </tbody>
-        </table>`}
+        </table></div>`}
       </div>
     `;
     }

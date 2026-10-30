@@ -42,13 +42,13 @@ window.SheetsPage = {
         <div class="kpi-card" style="--kpi-color:var(--accent);--kpi-bg:var(--accent-soft)">
           <div class="kpi-icon">💰</div>
           <div class="kpi-label">Total Amount</div>
-          <div class="kpi-value" style="font-size:1.5rem">฿${total.toLocaleString()}</div>
+          <div class="kpi-value" style="font-size:1.5rem">${fmtTHB(total)}</div>
           <div class="kpi-change up">All selected records</div>
         </div>
         <div class="kpi-card" style="--kpi-color:var(--amber);--kpi-bg:var(--amber-soft)">
           <div class="kpi-icon">🧾</div>
           <div class="kpi-label">Total Tax (VAT 7%)</div>
-          <div class="kpi-value" style="font-size:1.5rem">฿${totalTax.toLocaleString()}</div>
+          <div class="kpi-value" style="font-size:1.5rem">${fmtTHB(totalTax)}</div>
         </div>
         <div class="kpi-card" style="--kpi-color:var(--green);--kpi-bg:var(--green-soft)">
           <div class="kpi-icon">📋</div>
@@ -96,9 +96,9 @@ window.SheetsPage = {
             const colors = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ef4444', '#8b5cf6', '#f97316', '#64748b'];
             const ci = MockData.categories.indexOf(cat) % colors.length;
             return `<div class="stat-row">
-            <div class="stat-label">${cat}</div>
+            <div class="stat-label">${esc(cat)}</div>
             <div class="stat-bar-wrap"><div class="stat-bar" style="width:${pct}%;background:${colors[ci]}"></div></div>
-            <div class="stat-value" style="color:${colors[ci]}">฿${amt.toLocaleString()}</div>
+            <div class="stat-value" style="color:${colors[ci]}">${fmtTHB(amt)}</div>
           </div>`;
         }).join('')}
       </div>
@@ -110,35 +110,36 @@ window.SheetsPage = {
         if (expenses.length === 0) return '<div style="padding:40px;text-align:center;color:var(--text-secondary)">No records found.</div>';
 
         return `
-          <table class="data-table">
+          <div class="table-scroll"><table class="data-table">
             <thead><tr>
               <th style="cursor:pointer" onclick="SheetsPage.sort('vendor_name')">Vendor ${this.sortKey === 'vendor_name' ? '↕' : ''}</th>
               <th style="cursor:pointer" onclick="SheetsPage.sort('date')">Date ${this.sortKey === 'date' ? '↕' : ''}</th>
               <th style="cursor:pointer" onclick="SheetsPage.sort('total')">Amount ${this.sortKey === 'total' ? '↕' : ''}</th>
               <th>Category</th>
               <th>Status</th>
-              <th>Organization ID</th>
+              <th>VAT</th>
             </tr></thead>
             <tbody>
               ${expenses.map(e => {
             return `<tr>
-                  <td>${e.vendor_name}</td>
-                  <td>${new Date(e.date).toLocaleDateString()}</td>
-                  <td style="font-weight:800;color:var(--text-primary)">฿${(parseFloat(e.total) || 0).toLocaleString()}</td>
-                  <td><span class="badge badge-info">${e.category}</span></td>
-                  <td><span class="badge badge-${e.status}">${e.status}</span></td>
-                  <td><span class="company-pill" style="background:var(--accent-soft);color:var(--accent);font-size:0.7rem">${e.organization_id}</span></td>
+                  <td>${esc(e.vendor_name)}</td>
+                  <td>${fmtDate(e.date)}</td>
+                  <td style="font-weight:800;color:var(--text-primary)">${fmtTHB(e.total)}</td>
+                  <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : '—'}</td>
+                  <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
+                  <td style="color:var(--text-secondary)">${parseFloat(e.tax_amount) > 0 ? fmtTHB(e.tax_amount) : '—'}</td>
                 </tr>`;
         }).join('')}
             </tbody>
             <tfoot>
               <tr style="border-top:2px solid var(--border)">
                 <td colspan="2" style="font-weight:700;color:var(--text-primary)">TOTAL</td>
-                <td style="font-weight:800;font-size:1rem;color:var(--accent)">฿${total.toLocaleString()}</td>
-                <td colspan="3"></td>
+                <td style="font-weight:800;font-size:1rem;color:var(--accent)">${fmtTHB(total)}</td>
+                <td colspan="2"></td>
+                <td style="font-weight:700;color:var(--text-secondary)">${fmtTHB(totalTax)}</td>
               </tr>
             </tfoot>
-          </table>
+          </table></div>
         `;
     },
 
