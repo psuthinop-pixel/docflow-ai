@@ -6,6 +6,9 @@ window.ReceiptsPage = {
   ocrResult: null,
   expenses: [],
   loading: false,
+  fxOnly: false,
+  fxEdited: null, // 'total_thb' or 'fx_rate': whichever FX input the owner typed in last
+  currencies: ['THB', 'USD', 'EUR', 'GBP', 'SGD', 'HKD', 'JPY', 'CNY', 'AUD'],
 
   render(companyId) {
     if (!this.initialized || this.lastCompanyId !== companyId) {
@@ -80,7 +83,10 @@ window.ReceiptsPage = {
             <div class="card-title">💳 Processed Receipts</div>
             <div class="card-subtitle">${this.expenses.length} receipts uploaded</div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="Pages.sheets()">View All →</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-${this.fxOnly ? 'primary' : 'ghost'} btn-sm" id="fxFilterBtn" onclick="ReceiptsPage.toggleFxFilter()">${this.fxFilterLabel()}</button>
+            <button class="btn btn-ghost btn-sm" onclick="Pages.sheets()">View All →</button>
+          </div>
         </div>
         <div id="expensesTableContainer">
             ${this.renderExpensesTable()}
@@ -92,6 +98,8 @@ window.ReceiptsPage = {
   renderExpensesTable() {
     if (this.loading) return '<div style="padding:20px;text-align:center">Loading expenses...</div>';
     if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts found.</div>';
+    const rows = this.expenses.map((e, idx) => ({ e, idx })).filter(({ e }) => !this.fxOnly || Money.fxPending(e));
+    if (rows.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts waiting for an exchange rate.</div>';
 
     return `
         <table class="data-table">
@@ -99,23 +107,25 @@ window.ReceiptsPage = {
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
           <tbody>
-            ${this.expenses.map((e, idx) => {
+            ${rows.map(({ e, idx }) => {
               const hasTax = e.tax_amount && parseFloat(e.tax_amount) > 0;
               return `
             <tr>
               <td>${esc(e.vendor_name)}${e.invoice_number ? `<div style="font-size:0.72rem;color:var(--text-secondary)">#${esc(e.invoice_number)}</div>` : ''}</td>
               <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-              <td style="font-weight:700">฿${parseFloat(e.total).toLocaleString()}</td>
+              <td style="font-weight:700">${Money.cell(e)}</td>
               <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : ''}</td>
               <td>
-                ${hasTax 
+                ${Money.isForeign(e)
+                  ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${hasTax ? `${Money.format(e.tax_amount, e.currency)} tax` : 'Foreign'}</span>`
+                  : hasTax
                   ? `<span style="font-size:0.8rem;color:var(--green)">฿${parseFloat(e.tax_amount).toLocaleString()} VAT</span>` 
                   : `<span class="badge badge-error" style="background:rgba(239, 68, 68, 0.1);color:rgb(239, 68, 68);border:1px solid rgba(239, 68, 68, 0.2)">⚠️ No Tax</span>`}
               </td>
               <td><span class="badge badge-${e.status}">${e.status}</span></td>
               <td style="text-align:right">
                 ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')">📎</button>` : ''}
-                ${this.canApprove() && e.status === 'confirmed' ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
+                ${this.canApprove() && e.status === 'confirmed' && !Money.fxPending(e) ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">✏️ Edit</button>
               </td>
             </tr>`;
@@ -137,7 +147,21 @@ window.ReceiptsPage = {
       this.loading = false;
       const container = document.getElementById('expensesTableContainer');
       if (container) container.innerHTML = this.renderExpensesTable();
+      const btn = document.getElementById('fxFilterBtn');
+      if (btn) btn.textContent = this.fxFilterLabel();
     }
+  },
+
+  fxFilterLabel() {
+    return `💱 Needs FX rate (${this.expenses.filter(e => Money.fxPending(e)).length})`;
+  },
+
+  toggleFxFilter() {
+    this.fxOnly = !this.fxOnly;
+    const btn = document.getElementById('fxFilterBtn');
+    if (btn) btn.className = `btn btn-${this.fxOnly ? 'primary' : 'ghost'} btn-sm`;
+    const container = document.getElementById('expensesTableContainer');
+    if (container) container.innerHTML = this.renderExpensesTable();
   },
 
   categories() {
@@ -186,8 +210,15 @@ window.ReceiptsPage = {
       ${field('vendor_taxid', '🆔 Vendor Tax ID', r.vendor_taxid, 'inputmode="numeric" maxlength="13" placeholder="13 digits"')}
       ${field('invoice_number', '🔢 Invoice / Receipt No.', r.invoice_number)}
       ${field('date', '📅 Date', r.date || '', 'type="date"')}
-      ${field('total', '💰 Total Amount (incl. VAT)', r.total ?? '', 'inputmode="decimal"')}
+      <div class="ocr-field">
+        <div class="ocr-field-label">💱 Currency</div>
+        <select class="ocr-field-input" data-field="currency" onchange="ReceiptsPage.onCurrencyChange(this.value)">
+          ${[...new Set([...this.currencies, r.currency || 'THB'])].map(c => `<option ${c === (r.currency || 'THB') ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+      </div>
+      ${field('total', '💰 Total Amount (incl. VAT)', r.total ?? '', 'inputmode="decimal" oninput="ReceiptsPage.onFxInput()"')}
       ${field('tax_amount', '🧾 VAT', r.tax_amount ?? '', 'inputmode="decimal"')}
+      ${this.renderFx(r)}
       <div class="ocr-field">
         <div class="ocr-field-label">🏷 Category</div>
         <select class="ocr-field-input" data-field="category">
@@ -223,7 +254,62 @@ window.ReceiptsPage = {
     </div>`;
   },
 
+  /** Exchange-rate inputs for foreign-currency receipts; owners/admins enter the THB charged on the card statement. */
+  renderFx(r) {
+    const currency = r.currency || 'THB';
+    const show = currency !== 'THB' ? '' : 'display:none';
+    if (!this.canApprove()) {
+      return `<div id="fxSection" style="${show};padding:10px 12px;border-radius:8px;margin:6px 0;background:var(--amber-soft);color:var(--amber);font-size:0.8rem">
+        💱 ${r.total_thb != null ? `Converted: ${Money.format(r.total_thb)} at ${r.fx_rate}` : 'An owner or admin will enter the THB amount from the card statement before approval.'}
+      </div>`;
+    }
+    const fx = (name, label, value, attrs) =>
+      `<div class="ocr-field"><div class="ocr-field-label">${label}</div><input class="ocr-field-input" data-fx="${name}" value="${esc(value)}" ${attrs}></div>`;
+    return `
+      <div id="fxSection" style="${show};padding:10px 12px;border-radius:8px;margin:6px 0;border:1px dashed var(--border)">
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:6px">💳 From the card statement — leave blank if it hasn't arrived yet</div>
+        ${fx('total_thb', '฿ THB charged', r.total_thb ?? '', 'inputmode="decimal" oninput="ReceiptsPage.onFxInput(\'total_thb\')"')}
+        ${fx('fx_rate', `Rate (THB per 1 <span id="fxCurrency">${esc(currency)}</span>)`, r.fx_rate ?? '', 'inputmode="decimal" oninput="ReceiptsPage.onFxInput(\'fx_rate\')"')}
+        ${fx('fx_rate_date', '📅 Statement date', r.fx_rate_date || '', 'type="date"')}
+      </div>`;
+  },
+
+  onCurrencyChange(currency) {
+    const section = document.getElementById('fxSection');
+    if (section) section.style.display = currency === 'THB' ? 'none' : '';
+    const label = document.getElementById('fxCurrency');
+    if (label) label.textContent = currency;
+  },
+
+  /** Keep THB charged and rate consistent while the owner types in either one. */
+  onFxInput(source) {
+    const num = el => parseFloat((el?.value || '').replace(/[฿,\s]/g, ''));
+    const get = name => document.querySelector(`.ocr-panel [data-fx="${name}"]`);
+    const total = num(document.querySelector('.ocr-panel [data-field="total"]'));
+    if (source) this.fxEdited = source;
+    const thb = get('total_thb'), rate = get('fx_rate');
+    if (!thb || !rate || !(total > 0)) return;
+    if (this.fxEdited === 'total_thb') rate.value = num(thb) > 0 ? +(num(thb) / total).toFixed(6) : '';
+    else if (this.fxEdited === 'fx_rate') thb.value = num(rate) > 0 ? (total * num(rate)).toFixed(2) : '';
+  },
+
+  /** FX fields for the save payload: only what the owner changed, so untouched records keep their card-statement amount. */
+  fxPayload(r, currency) {
+    if (!this.canApprove() || currency === 'THB') return {};
+    const get = name => (document.querySelector(`.ocr-panel [data-fx="${name}"]`)?.value || '').trim().replace(/[฿,\s]/g, '');
+    const out = {};
+    if (this.fxEdited) {
+      const v = get(this.fxEdited);
+      if (v === '') out.fx_rate = null;
+      else out[this.fxEdited] = v;
+    }
+    const date = get('fx_rate_date');
+    if (date !== (r.fx_rate_date || '')) out.fx_rate_date = date || null;
+    return out;
+  },
+
   showResult() {
+    this.fxEdited = null;
     this.ocrDone = true;
     const panel = document.getElementById('ocrResultPanel');
     if (panel) {
@@ -347,9 +433,15 @@ window.ReceiptsPage = {
       date: values.date || null,
       total: amount(values.total),
       tax_amount: amount(values.tax_amount),
-      currency: 'THB',
+      currency: values.currency || 'THB',
+      ...this.fxPayload(r, values.currency || 'THB'),
       status: isDisabled ? 'disabled' : (status || (r.status === 'approved' ? 'approved' : 'confirmed')),
     };
+
+    // Catch a rate typed the wrong way round (e.g. 0.0276 USD per THB instead of 36.25 THB per USD).
+    const rate = payload.fx_rate ?? (payload.total_thb && Number(payload.total) ? payload.total_thb / payload.total : null);
+    if (payload.currency === 'USD' && rate && (rate < 25 || rate > 45) &&
+        !confirm(`The rate works out to ${(+rate).toFixed(4)} THB per USD, which looks wrong. Save anyway?`)) return;
 
     try {
       if (isUpdate) {

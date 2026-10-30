@@ -33,7 +33,9 @@ window.DashboardPage = {
         // Filter out disabled expenses for calculations and display
         const activeExpenses = this.expenses.filter(e => e.status !== 'disabled');
         
-        const total = activeExpenses.reduce((s, e) => s + parseFloat(e.total || 0), 0);
+        // THB only: foreign-currency expenses count once their card-statement amount is entered.
+        const total = activeExpenses.reduce((s, e) => s + (Money.thb(e) || 0), 0);
+        const fxPending = activeExpenses.filter(e => Money.fxPending(e));
         const pending = activeExpenses.filter(e => e.status === 'pending').length;
         const confirmed = activeExpenses.filter(e => e.status === 'confirmed').length;
         const companiesCount = App.organizations.length;
@@ -55,7 +57,9 @@ window.DashboardPage = {
           <div class="kpi-icon">💰</div>
           <div class="kpi-label">Total Expenses (MTD)</div>
           <div class="kpi-value">฿${total.toLocaleString()}</div>
-          <div class="kpi-change up">↑ Live from database</div>
+          ${fxPending.length
+            ? `<div class="kpi-change" style="color:var(--amber)">+ ${fxPending.length} pending FX: ${Money.pendingSummary(fxPending)}</div>`
+            : '<div class="kpi-change up">↑ Live from database</div>'}
         </div>
         <div class="kpi-card" style="--kpi-color:var(--amber);--kpi-bg:var(--amber-soft)">
           <div class="kpi-icon">⏳</div>
@@ -90,7 +94,7 @@ window.DashboardPage = {
             <div class="activity-item">
               <div class="activity-icon-wrap">🔍</div>
               <div style="flex:1">
-                <div class="activity-text">OCR processed: ${e.vendor_name} — ฿${parseFloat(e.total).toLocaleString()}</div>
+                <div class="activity-text">OCR processed: ${e.vendor_name} — ${Money.isForeign(e) ? Money.format(e.total, e.currency) : Money.format(Money.thb(e))}</div>
                 <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
                   <div class="activity-time">${new Date(e.date).toLocaleDateString()}</div>
                   <div class="company-pill" style="background:var(--accent-soft);color:var(--accent);font-size:0.7rem;padding:2px 8px;border-radius:99px">Live</div>
@@ -148,7 +152,7 @@ window.DashboardPage = {
                 return `<tr>
                 <td>${e.vendor_name}</td>
                 <td style="color:var(--text-secondary)">${new Date(e.date).toLocaleDateString()}</td>
-                <td style="font-weight:700;color:var(--text-primary)">฿${parseFloat(e.total).toLocaleString()}</td>
+                <td style="font-weight:700;color:var(--text-primary)">${Money.cell(e)}</td>
                 <td><span class="badge badge-info">${e.category}</span></td>
                 <td>📤 upload</td>
                 <td><span class="badge badge-confirmed">confirmed</span></td>

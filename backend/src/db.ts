@@ -71,6 +71,18 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_by TEXT REFERENCES users(id)`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_at TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_invoice ON expenses(organization_id, vendor_taxid, invoice_number)`,
+  // Foreign-currency receipts: amounts stay in the receipt's currency; *_thb is what reports add up.
+  // fx_rate is THB per 1 unit, normally taken from the card statement (THB charged / amount).
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_rate DOUBLE PRECISION`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_rate_date TEXT`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_source TEXT`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_set_by TEXT REFERENCES users(id)`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_set_at TEXT`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS total_thb DOUBLE PRECISION`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS subtotal_thb DOUBLE PRECISION`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tax_amount_thb DOUBLE PRECISION`,
+  `UPDATE expenses SET fx_rate = 1, total_thb = total, subtotal_thb = subtotal, tax_amount_thb = tax_amount
+   WHERE currency = 'THB' AND total_thb IS NULL`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

@@ -98,3 +98,11 @@ Total $20.00`);
   assert.equal(f.currency, 'USD');
   assert.equal(parseReceipt('รวมทั้งสิ้น 1,000.00 บาท').currency, 'THB');
 });
+
+test('USD receipts skip Thai VAT and tax ID checks', () => {
+  const f = parseReceipt('Figma Inc\nTax Invoice\nDate 2026-10-01\nVAT 10.00\nTotal USD 100.00');
+  assert.equal(f.currency, 'USD');
+  const w = validateFields(f);
+  assert.ok(w.some((x) => x.includes('USD') && x.includes('card statement')));
+  assert.ok(!w.some((x) => x.includes('VAT') || x.includes('tax ID')));
+});
