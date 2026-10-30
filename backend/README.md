@@ -1,4 +1,4 @@
-# DocFlow API (Phase 0)
+# DocFlow API
 
 Node 22.13+ · TypeScript · Express · Postgres on [Neon](https://neon.tech) (`pg`) · JWT
 
@@ -12,7 +12,9 @@ npm test
 
 The schema is created on startup (`CREATE TABLE IF NOT EXISTS`). Tests run on in-process Postgres (PGlite), so they need no database.
 
-Env: `DATABASE_URL` (**required**), `PORT` (8000), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
+Env: `DATABASE_URL` (**required**), `MAX_UPLOAD_MB` (10; Vercel caps request bodies at 4.5 MB), `OCR_ENGINE` (`auto` | `typhoon` | `tesseract` | `claude`; `auto` = Typhoon → Claude → Tesseract, falling back to Tesseract if Typhoon fails), `TYPHOON_OCR_API_KEY` (enables Typhoon in `auto`; needs `pip install typhoon-ocr` and `pdftoppm`, so not available on Vercel), `TYPHOON_CACHE_DIR` (optional OCR text cache), `ANTHROPIC_API_KEY` (enables Claude in `auto`), `CLAUDE_MODEL`, `PORT` (8000), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
+
+Uploaded receipt files are stored in Postgres (`receipts.content`), since serverless instances have no persistent disk.
 
 ## Deploy (Vercel + Neon)
 
@@ -40,6 +42,18 @@ The API's serverless entry is `api/index.ts`; `vercel.json` sends every path to 
 | GET/POST | /organizations | creator becomes `owner` |
 | GET | /expenses?organization_id= | member only |
 | POST | /expenses | requires `organization_id` |
-| PUT/DELETE | /expenses/:id | member only |
+| PUT/DELETE | /expenses/:id | member only; approved records owner/admin only |
+| POST | /receipts | multipart `file` + `organization_id` → `{receipt, fields, warnings, duplicates}` |
+| GET | /receipts/:id, /receipts/:id/file | metadata / original file |
+
+Expense `status`: `draft` → `confirmed` → `approved` (owner/admin), or `disabled`.
+`POST /expenses` returns **409** with `duplicates` when the same receipt file or seller tax ID + invoice number already exists; resend with `allow_duplicate: true` to save anyway.
 
 Errors are returned as `{ "detail": "..." }`.
+
+## Receipt extraction
+
+- **tesseract** (default): Thai + English OCR on the server, language data bundled (no network). PDFs use their text layer; scanned PDFs need `pdftoppm` (`apt install poppler-utils`).
+- **claude**: sends the image/PDF to Claude for structured extraction, then checks the tax ID with the same rules. Roughly ฿1 per receipt on Claude Opus 5.5 (estimate: ~2k input + ~1k output tokens); more robust on crumpled or handwritten receipts.
+
+Accuracy check: `npx tsx test/accuracy.ts [tesseract|claude]` over `test/fixtures` (regenerate with `node test/make-fixtures.cjs`). Add real receipts plus their entries in `expected.json` to measure on your own data.

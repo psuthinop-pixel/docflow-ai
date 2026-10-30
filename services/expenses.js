@@ -20,7 +20,10 @@ window.ExpenseApi = {
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-            throw new Error(error.detail || 'Failed to save to backend');
+            const err = new Error(error.detail || 'Failed to save to backend');
+            err.status = response.status;
+            err.duplicates = error.duplicates || [];
+            throw err;
         }
 
         return await response.json();

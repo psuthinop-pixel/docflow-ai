@@ -16,7 +16,7 @@ async function load() {
   const { connect } = await import('../src/db.js');
   const { createApp } = await import('../src/app.js');
   // One connection per function instance; Neon's pooler (PgBouncer) multiplexes across instances.
-  return createApp(connect(config.databaseUrl, 1), config.corsOrigins);
+  return createApp(connect(config.databaseUrl, 1), config.corsOrigins, config);
 }
 
 export default missing.length ? misconfigured : await load();
