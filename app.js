@@ -174,7 +174,6 @@ window.App = {
             line: 'The LINE bot is not connected yet — this page is a preview with sample messages.',
             drive: 'Google Drive filing is not connected yet — this page is a preview with sample files.',
             sheets: 'The table below is your real data, but Google Sheets sync is not connected yet.',
-            settings: 'Settings are a preview: API keys and company changes here are not saved to the server yet.',
         };
         return notes[page] ? `<div class="preview-banner"><span>🚧</span><span>${notes[page]}</span></div>` : '';
     },

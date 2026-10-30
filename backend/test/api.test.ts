@@ -8,6 +8,7 @@ import { createApp } from '../src/app.js';
 
 let server: Server;
 let base = '';
+let db: Db;
 
 async function addUser(db: Db, email: string) {
   await db.query('INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)', [
@@ -17,10 +18,11 @@ async function addUser(db: Db, email: string) {
 
 before(async () => {
   // In-process Postgres, so tests exercise the same SQL that runs on Neon.
-  const db = new PGlite();
+  db = new PGlite();
   await migrate(db);
   await addUser(db, 'a@test.com');
   await addUser(db, 'b@test.com');
+  await addUser(db, 'c@test.com');
   server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as { port: number }).port}`;
@@ -79,4 +81,41 @@ test('full flow: org → expense CRUD, isolation, logout', async () => {
 
   await call('POST', '/auth/logout', a);
   assert.equal((await call('GET', '/auth/me', a)).status, 401);
+});
+
+test('organization edit: owner/admin only, validated', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Serve', color: '#6366f1' })).body;
+  assert.equal((await call('POST', '/organizations', a, { organization_name: 'X', color: 'red;}' })).status, 400);
+
+  const edited = await call('PUT', `/organizations/${org._id}`, a, {
+    organization_name: '  Serve Property ', color: '#10b981', categories: [' Utilities ', 'utilities', 'Repairs', ''],
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.organization_name, 'Serve Property');
+  assert.equal(edited.body.color, '#10b981');
+  assert.deepEqual(edited.body.categories, ['Utilities', 'Repairs']);
+  assert.equal(edited.body.role, 'owner');
+
+  assert.equal((await call('PUT', `/organizations/${org._id}`, a, { color: 'javascript:1' })).status, 400);
+  assert.equal((await call('PUT', `/organizations/${org._id}`, a, { organization_name: ' ' })).status, 400);
+  assert.equal((await call('PUT', `/organizations/${org._id}`, a, {})).status, 400);
+
+  // Not a member: 404. Member without edit rights: 403.
+  assert.equal((await call('PUT', `/organizations/${org._id}`, c, { color: '#000000' })).status, 404);
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+  assert.equal((await call('PUT', `/organizations/${org._id}`, c, { color: '#000000' })).status, 403);
+});
+
+test('system status reports the OCR engine without secrets', async () => {
+  assert.equal((await call('GET', '/system/status')).status, 401);
+  const a = await login('a@test.com');
+  const r = await call('GET', '/system/status', a);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ocr.setting, 'auto');
+  assert.ok(['typhoon', 'claude', 'tesseract'].includes(r.body.ocr.active));
+  assert.equal(r.body.ocr.engines.tesseract, true);
+  assert.equal(typeof r.body.ocr.engines.typhoon, 'boolean');
 });

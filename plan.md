@@ -46,11 +46,20 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - Light theme: the sidebar stays dark, so it now keeps light text (it was nearly invisible).
 - Skeleton loaders on Dashboard and Receipts, and `prefers-reduced-motion` is respected.
 
+## ✅ Done, batch 3: real Settings page
+- Removed the fake OpenAI/Gmail/LINE/Google key fields, the "Test" buttons that always said "connected", "Save All", mock company management, the unused preferences and "Clear All Data".
+- **Property** section: edit the name, colour and the category list used in receipt review. Owners and admins only; members see it read-only. Saved through the new `PUT /organizations/:id`, which validates hex colours and trims and de-duplicates categories. `POST /organizations` now validates colour and categories too.
+- **Receipt reading (OCR)**: read-only status from the new authenticated `GET /system/status`: the engine in use, the mode, and which engines are configured. It reports whether keys are set, never the keys themselves. When Typhoon is off, it warns and names the Vercel env var to set.
+- **Account** (name, email, role, sign out), **Appearance** (theme), and **Data**: a CSV export of every record for the property. The export has a UTF-8 BOM so Thai opens correctly in Excel, keeps the leading zero on tax IDs, and blocks formula injection from OCR'd text.
+- **Integrations**: an honest "planned for Phase 3" list.
+- Backend tests: org edit permissions and validation, and system status. 19/19 pass.
+
 ## Still open
-- [ ] The mock pages (email, line, drive, reports, settings) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
-- [ ] Settings shows OpenAI/Gmail key fields that do nothing, and the OCR model list doesn't match the real engines. Remove them or replace them with read-only server status (which engine is active, whether Typhoon is configured).
-- [ ] Organization picker: currency shows "N/A" when the API omits it. There is also no way to edit an existing property's name or colour (needs `PUT /organizations/:id`).
-- [ ] Topbar on phones: the avatar and theme toggle take about a third of the width. Consider moving the theme toggle into the user menu.
+- [ ] The mock pages (email, line, drive, reports) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
+- [ ] Members: there is no way to invite a user to a property or change roles. Needs membership endpoints and a Members section in Settings.
+- [ ] Renaming or removing a category doesn't touch existing expenses that use it. Decide whether to offer "rename everywhere".
+- [ ] Organization picker: currency shows "N/A" when the API omits it.
+- [ ] Topbar on phones: the avatar and theme toggle take about a third of the width. Now that Settings has a theme switch, consider moving the toggle there.
 
 ## Phase 2 tie-in: move aggregation to the server
 - [ ] The dashboard aggregates every expense in the browser. Fine at hundreds of rows, slow at thousands. Add `GET /expenses/summary?organization_id&month` (spend, prior month, counts by status, VAT, by category) and use it for the KPIs.

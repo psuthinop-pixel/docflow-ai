@@ -1501,9 +1501,51 @@ input[type="checkbox"] {
     margin-bottom: 18px;
 }
 
-.api-key-input {
-    font-family: 'Courier New', monospace;
-    letter-spacing: 0.5px;
+.settings-rows {
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-row > span:first-child {
+    color: var(--text-secondary);
+}
+
+.form-input:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.org-swatch-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.org-swatch-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.org-swatch-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 /* ─── Modal ─── */
