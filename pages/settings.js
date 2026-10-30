@@ -287,7 +287,7 @@ window.SettingsPage = {
         try {
             const rows = await ExpenseApi.listExpenses(App.currentCompany);
             const cols = [
-                ['Date', 'date'], ['Vendor', 'vendor_name'], ['Vendor tax ID', 'vendor_taxid'], ['Invoice no.', 'invoice_number'],
+                ['Date', 'date'], ['Vendor', 'vendor_name'], ['Vendor tax ID', 'vendor_taxid'], ['Branch', 'vendor_branch'], ['Invoice no.', 'invoice_number'],
                 ['Category', 'category'], ['Subtotal', 'subtotal'], ['VAT', 'tax_amount'], ['Total', 'total'],
                 ['Currency', 'currency'], ['Status', 'status'], ['Notes', 'notes'], ['Has original file', 'receipt_id'],
             ];

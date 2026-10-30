@@ -1,6 +1,7 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type { Db } from '../db.js';
-import { all } from '../db.js';
+import { all, one } from '../db.js';
+import { summaryWorkbook, vatWorkbook, type VatRow } from './reports-xlsx.js';
 import { membershipRole, requireAuth } from '../auth.js';
 
 /*
@@ -35,23 +36,22 @@ export function reportsRouter(db: Db): Router {
     return { orgId: orgParam };
   }
 
-  // GET /reports/summary?organization_id=<id|all>&from=YYYY-MM&to=YYYY-MM  (default: the last 12 months)
-  r.get('/summary', async (req, res) => {
-    const s = await scope(req.user!.id, req.query.organization_id);
-    if ('status' in s) return res.status(s.status).json({ detail: s.detail });
+  /** from/to query params → a validated range (default: the last 12 months), or an error. */
+  function range(q: Record<string, unknown>): { from: string; to: string; months: number } | { status: number; detail: string } {
+    const to = isMonth(q.to) ? q.to : new Date().toISOString().slice(0, 7);
+    const from = isMonth(q.from) ? q.from : shift(to, -11);
+    const months = monthsBetween(from, to);
+    if (months < 1) return { status: 400, detail: 'from must not be after to' };
+    if (months > MAX_MONTHS) return { status: 400, detail: `A report covers at most ${MAX_MONTHS} months` };
+    return { from, to, months };
+  }
 
-    const thisMonth = new Date().toISOString().slice(0, 7);
-    const to = isMonth(req.query.to) ? req.query.to : thisMonth;
-    const from = isMonth(req.query.from) ? req.query.from : shift(to, -11);
-    const span = monthsBetween(from, to);
-    if (span < 1) return res.status(400).json({ detail: 'from must not be after to' });
-    if (span > MAX_MONTHS) return res.status(400).json({ detail: `A report covers at most ${MAX_MONTHS} months` });
-
+  async function summarize(userId: string, orgId: string | null, from: string, to: string, months: number) {
     // $1 user, $2 org (or null for all of the user's organizations)
     const base = `FROM expenses e
       JOIN memberships m ON m.organization_id = e.organization_id AND m.user_id = $1
       WHERE ($2::text IS NULL OR e.organization_id = $2) AND e.status <> 'disabled'`;
-    const params = [req.user!.id, s.orgId];
+    const params = [userId, orgId];
     const ranged = [...params, from, to];
 
     const [orgs, byMonth, byCategory, statuses, vatGaps] = await Promise.all([
@@ -92,39 +92,85 @@ export function reportsRouter(db: Db): Router {
       ),
     ]);
 
-    res.json({
-      range: { from, to, months: span },
+    return {
+      range: { from, to, months },
       organizations: orgs.map((o) => ({ id: o.id, _id: o.id, organization_name: o.organization_name, color: o.color, role: o.role })),
-      by_month: byMonth.map((x) => ({ organization_id: x.organization_id, month: x.month, spend: money(x.spend), vat_claimable: money(x.vat_claimable), vat_claimable_count: x.vat_claimable_count, count: x.count })),
-      by_category: byCategory.map((x) => ({ organization_id: x.organization_id, category: x.category, spend: money(x.spend), count: x.count })),
+      by_month: byMonth.map((x) => ({ organization_id: x.organization_id as string, month: x.month as string, spend: money(x.spend), vat_claimable: money(x.vat_claimable), vat_claimable_count: x.vat_claimable_count as number, count: x.count as number })),
+      by_category: byCategory.map((x) => ({ organization_id: x.organization_id as string, category: x.category as string, spend: money(x.spend), count: x.count as number })),
       status_counts: statuses,
-      vat_not_claimable: vatGaps.map((x) => ({ reason: x.reason, count: x.count, vat: money(x.vat) })),
-    });
-  });
+      vat_not_claimable: vatGaps.map((x) => ({ reason: x.reason as string, count: x.count as number, vat: money(x.vat) })),
+    };
+  }
 
-  // GET /reports/vat?organization_id=<id>&month=YYYY-MM — the input VAT listing for one property and month,
-  // in the order an accountant files it (by date, then invoice number).
-  r.get('/vat', async (req, res) => {
-    const s = await scope(req.user!.id, req.query.organization_id);
-    if ('status' in s) return res.status(s.status).json({ detail: s.detail });
-    if (s.orgId === null) return res.status(400).json({ detail: 'The VAT report is per property: pass one organization_id' });
-    if (!isMonth(req.query.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
-
+  // Every receipt with VAT for one property and month, in the order an accountant files it
+  async function vatRows(orgId: string, month: string): Promise<VatRow[]> {
     const rows = await all<Row>(
       db,
-      `SELECT e.id, e.date, e.invoice_number, e.vendor_name, e.vendor_taxid, e.subtotal, e.tax_amount, e.total,
+      `SELECT e.id, e.date, e.invoice_number, e.vendor_name, e.vendor_taxid, e.vendor_branch, e.subtotal, e.tax_amount, e.total,
               e.status, e.receipt_id, ${CLAIMABLE} AS claimable
        FROM expenses e
        WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.tax_amount > 0 AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.invoice_number`,
-      [s.orgId, req.query.month],
+      [orgId, month],
     );
-    res.json(rows.map((x) => ({
+    return rows.map((x) => ({
       ...x,
       subtotal: x.subtotal == null ? money(Number(x.total) - Number(x.tax_amount)) : money(x.subtotal),
       tax_amount: money(x.tax_amount),
       total: money(x.total),
-    })));
+    })) as VatRow[];
+  }
+
+  /** A single property and month, as the VAT report needs. */
+  async function vatScope(req: Request) {
+    const s = await scope(req.user!.id, req.query.organization_id);
+    if ('status' in s) return s;
+    if (s.orgId === null) return { status: 400, detail: 'The VAT report is per property: pass one organization_id' };
+    if (!isMonth(req.query.month)) return { status: 400, detail: 'month must be YYYY-MM' };
+    return { orgId: s.orgId, month: req.query.month };
+  }
+
+  const sendXlsx = async (res: Response, filename: string, book: { xlsx: { writeBuffer(): Promise<ArrayBuffer> } }) => {
+    const buf = Buffer.from(await book.xlsx.writeBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition'); // the app is on another origin
+    res.send(buf);
+  };
+
+  // GET /reports/summary?organization_id=<id|all>&from=YYYY-MM&to=YYYY-MM  (default: the last 12 months)
+  r.get('/summary', async (req, res) => {
+    const s = await scope(req.user!.id, req.query.organization_id);
+    if ('status' in s) return res.status(s.status).json({ detail: s.detail });
+    const rg = range(req.query);
+    if ('status' in rg) return res.status(rg.status).json({ detail: rg.detail });
+    res.json(await summarize(req.user!.id, s.orgId, rg.from, rg.to, rg.months));
+  });
+
+  // Same as /summary, as an Excel workbook: by month (one column per property), by category, and long-format data
+  r.get('/summary.xlsx', async (req, res) => {
+    const s = await scope(req.user!.id, req.query.organization_id);
+    if ('status' in s) return res.status(s.status).json({ detail: s.detail });
+    const rg = range(req.query);
+    if ('status' in rg) return res.status(rg.status).json({ detail: rg.detail });
+    const data = await summarize(req.user!.id, s.orgId, rg.from, rg.to, rg.months);
+    const who = s.orgId ? data.organizations[0]?.organization_name ?? 'property' : 'All properties';
+    await sendXlsx(res, `${who} summary ${rg.from} to ${rg.to}.xlsx`, summaryWorkbook(data, who));
+  });
+
+  // GET /reports/vat?organization_id=<id>&month=YYYY-MM — the input VAT listing for one property and month
+  r.get('/vat', async (req, res) => {
+    const v = await vatScope(req);
+    if ('status' in v) return res.status(v.status).json({ detail: v.detail });
+    res.json(await vatRows(v.orgId, v.month));
+  });
+
+  r.get('/vat.xlsx', async (req, res) => {
+    const v = await vatScope(req);
+    if ('status' in v) return res.status(v.status).json({ detail: v.detail });
+    const org = await one<{ organization_name: string }>(db, 'SELECT organization_name FROM organizations WHERE id = $1', [v.orgId]);
+    const name = org?.organization_name ?? 'Property';
+    await sendXlsx(res, `${name} input VAT ${v.month}.xlsx`, vatWorkbook(await vatRows(v.orgId, v.month), name, v.month));
   });
 
   return r;

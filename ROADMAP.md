@@ -63,7 +63,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Exports: summary CSV (long format, pivots in Excel), input VAT report CSV (Thai/English headers), print to PDF
 - [x] Dashboard KPIs from the same endpoint; `GET /expenses?limit&sort=updated` for the short lists
 - [x] `MockData` removed from Reports and Settings; organizations managed through the API
-- [ ] Native .xlsx export, if the accountant prefers it to CSV
+- [x] Native .xlsx export (input tax report and summary workbook), seller branch captured from receipts
 
 ## Phase 3 — Intake channels (3–4 weeks, built one at a time)
 1. LINE bot webhook (highest value in Thailand)

@@ -2,11 +2,12 @@ import { Router } from 'express';
 import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
+import { normalizeBranch } from '../extract/parse.js';
 
 const STATUSES = ['draft', 'confirmed', 'approved', 'disabled'];
 const APPROVERS = ['owner', 'admin'];
 const EDITABLE = [
-  'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'date',
+  'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'vendor_branch', 'date',
   'total', 'subtotal', 'tax_amount', 'currency', 'category', 'notes', 'invoice_number', 'receipt_id',
 ] as const;
 
@@ -29,6 +30,11 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
       const d = new Date(String(v));
       if (isNaN(d.getTime())) return 'date is invalid';
       out.date = d.toISOString();
+    } else if (key === 'vendor_branch') {
+      const raw = v == null ? '' : String(v).trim();
+      const b = normalizeBranch(raw);
+      if (raw && !b) return 'vendor_branch must be a branch number (e.g. 00012) or head office (00000)';
+      out.vendor_branch = b;
     } else if (key === 'status') {
       if (!STATUSES.includes(String(v))) return `status must be one of ${STATUSES.join(', ')}`;
       out.status = String(v);

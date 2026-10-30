@@ -2,7 +2,7 @@
 import { extractText } from './ocr.js';
 import { typhoonEnabled, typhoonText } from './typhoon.js';
 import { claudeEnabled, extractWithClaude } from './claude.js';
-import { isValidThaiTaxId, parseReceipt, validateFields, type ReceiptFields } from './parse.js';
+import { isValidThaiTaxId, normalizeBranch, parseReceipt, validateFields, type ReceiptFields } from './parse.js';
 
 export type Engine = 'tesseract' | 'claude' | 'typhoon';
 
@@ -31,6 +31,7 @@ export async function extractReceipt(buf: Buffer, mime: string, categories: stri
     const fields = {
       ...c,
       vendor_taxid: isValidThaiTaxId(taxid) || !isValidThaiTaxId(rules.vendor_taxid) ? taxid : rules.vendor_taxid,
+      vendor_branch: normalizeBranch(c.vendor_branch || '') || rules.vendor_branch,
       category: categories.includes(c.category) ? c.category : '',
     };
     const { raw_text: _t, ...clean } = fields;

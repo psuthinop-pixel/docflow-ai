@@ -141,7 +141,8 @@ window.ReportsPage = {
         </div>
         <div style="display:flex;gap:10px" class="no-print">
           <button class="btn btn-secondary btn-sm" onclick="window.print()" ${this.data ? '' : 'disabled'}>🖨 Print / PDF</button>
-          <button class="btn btn-secondary btn-sm" onclick="ReportsPage.exportSummary()" ${this.data ? '' : 'disabled'}>⬇ Summary CSV</button>
+          <button class="btn btn-secondary btn-sm" id="summaryXlsxBtn" onclick="ReportsPage.exportSummaryXlsx()" ${this.data ? '' : 'disabled'}>⬇ Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="ReportsPage.exportSummary()" ${this.data ? '' : 'disabled'}>CSV</button>
         </div>
       </div>`;
 
@@ -360,9 +361,10 @@ window.ReportsPage = {
               <select class="form-input" style="width:auto" aria-label="VAT month" onchange="ReportsPage.vatMonth = this.value">
                 ${months.slice().reverse().map(m => `<option value="${m}" ${m === this.vatMonth ? 'selected' : ''}>${fmtMonth(m, { month: 'long', year: 'numeric' })}</option>`).join('')}
               </select>
-              <button class="btn btn-primary btn-sm" id="vatExportBtn" onclick="ReportsPage.exportVat()">⬇ Download CSV</button>
+              <button class="btn btn-primary btn-sm" id="vatXlsxBtn" onclick="ReportsPage.exportVatXlsx()">⬇ Excel</button>
+              <button class="btn btn-ghost btn-sm" id="vatExportBtn" onclick="ReportsPage.exportVat()">CSV</button>
             </div>
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">Every receipt with VAT that month, by date, marked claimable or not.</div>`}
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">Claimable tax invoices by date with seller branch and totals, then anything that can't be claimed yet.</div>`}
           </div>`;
     },
 
@@ -422,6 +424,27 @@ window.ReportsPage = {
         downloadCsv(`${who}_summary_${d.range.from}_to_${d.range.to}.csv`, rows);
     },
 
+    async withButton(id, label, task) {
+        const btn = document.getElementById(id);
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing...'; }
+        try {
+            await task();
+        } catch (error) {
+            App.showToast('error', '❌ ' + error.message, 4000);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = label; }
+        }
+    },
+
+    exportSummaryXlsx() {
+        const { from, to } = this.data.range;
+        return this.withButton('summaryXlsxBtn', '⬇ Excel', () => ReportApi.summaryXlsx(this.orgParam(), from, to));
+    },
+
+    exportVatXlsx() {
+        return this.withButton('vatXlsxBtn', '⬇ Excel', () => ReportApi.vatXlsx(App.currentCompany, this.vatMonth));
+    },
+
     async exportVat() {
         const month = this.vatMonth;
         const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
@@ -432,7 +455,7 @@ window.ReportsPage = {
             const dmy = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
             const rows = [[
                 'No. / ลำดับ', 'Date / วันที่', 'Invoice no. / เลขที่ใบกำกับภาษี', 'Seller / ชื่อผู้ขาย',
-                'Seller tax ID / เลขประจำตัวผู้เสียภาษี', 'Value before VAT / มูลค่าสินค้าหรือบริการ', 'VAT / ภาษีมูลค่าเพิ่ม',
+                'Seller tax ID / เลขประจำตัวผู้เสียภาษี', 'Head office or branch / สำนักงานใหญ่/สาขา', 'Value before VAT / มูลค่าสินค้าหรือบริการ', 'VAT / ภาษีมูลค่าเพิ่ม',
                 'Total / รวม', 'Filing status',
             ].map(h => csvCell(h))];
             let n = 0, base = 0, vat = 0;
@@ -441,18 +464,18 @@ window.ReportsPage = {
                 if (x.claimable) { n++; base += x.subtotal; vat += x.tax_amount; }
                 rows.push([
                     csvCell(x.claimable ? n : '', { numeric: true }), csvCell(dmy(x.date)), csvCell(x.invoice_number), csvCell(x.vendor_name),
-                    csvCell(x.vendor_taxid, { taxId: true }), csvCell(x.subtotal, { numeric: true }), csvCell(x.tax_amount, { numeric: true }),
+                    csvCell(x.vendor_taxid, { taxId: true }), csvCell(branchLabel(x.vendor_branch)), csvCell(x.subtotal, { numeric: true }), csvCell(x.tax_amount, { numeric: true }),
                     csvCell(x.total, { numeric: true }), csvCell(status),
                 ]);
             });
             rows.push([]);
-            rows.push(['', '', '', csvCell('Total claimable / รวมที่ขอคืนได้'), '', csvCell(base.toFixed(2), { numeric: true }), csvCell(vat.toFixed(2), { numeric: true }), '', '']);
+            rows.push(['', '', '', csvCell('Total claimable / รวมที่ขอคืนได้'), '', '', csvCell(base.toFixed(2), { numeric: true }), csvCell(vat.toFixed(2), { numeric: true }), '', '']);
             downloadCsv(`${org ? org.organization_name : 'property'}_input-VAT_${month}.csv`, rows);
             App.showToast('success', `⬇ ${n} claimable tax invoice${n === 1 ? '' : 's'} for ${fmtMonth(month, { month: 'long', year: 'numeric' })}`);
         } catch (error) {
             App.showToast('error', '❌ ' + error.message, 4000);
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '⬇ Download CSV'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'CSV'; }
         }
     },
 };

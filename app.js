@@ -468,6 +468,11 @@ function downloadCsv(filename, rows) {
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+// Revenue Department branch code → what Thai tax documents print
+function branchLabel(b) {
+    return b === '00000' ? 'สำนักงานใหญ่' : b ? `สาขาที่ ${b}` : '';
+}
+
 function sourceLabel(e) {
     return e.receipt_id ? '📤 Upload' : '✍️ Manual';
 }

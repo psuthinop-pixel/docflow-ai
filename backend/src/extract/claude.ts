@@ -8,12 +8,13 @@ const SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'vendor_name', 'vendor_taxid', 'vendor_address', 'invoice_number', 'date',
+    'vendor_name', 'vendor_taxid', 'vendor_branch', 'vendor_address', 'invoice_number', 'date',
     'subtotal', 'tax_amount', 'total', 'currency', 'is_tax_invoice', 'category', 'raw_text',
   ],
   properties: {
     vendor_name: { type: 'string' },
     vendor_taxid: { type: 'string', description: '13-digit seller tax ID, digits only, or empty' },
+    vendor_branch: { type: 'string', description: "Seller branch: '00000' for head office (สำนักงานใหญ่), the 5-digit branch number for สาขาที่ (e.g. '00012'), or empty if not printed" },
     vendor_address: { type: 'string' },
     invoice_number: { type: 'string' },
     date: { type: ['string', 'null'], description: 'Issue date as YYYY-MM-DD in the Gregorian calendar (convert Buddhist Era: BE − 543)' },

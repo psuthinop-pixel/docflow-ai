@@ -224,6 +224,7 @@ window.ReceiptsPage = {
       </div>` : ''}
       ${field('vendor_name', '🏪 Vendor / Store', r.vendor_name)}
       ${field('vendor_taxid', '🆔 Vendor Tax ID', r.vendor_taxid, 'inputmode="numeric" maxlength="13" placeholder="13 digits"')}
+      ${field('vendor_branch', '🏢 Head office / branch', r.vendor_branch || '', 'placeholder="00000 = head office, 00012 = สาขาที่ 12" title="As printed on the tax invoice: สำนักงานใหญ่ (00000) or สาขาที่ and its number"')}
       ${field('invoice_number', '🔢 Invoice / Receipt No.', r.invoice_number)}
       ${field('date', '📅 Date', r.date || '', 'type="date"')}
       ${field('total', '💰 Total Amount (incl. VAT)', r.total ?? '', 'inputmode="decimal"')}

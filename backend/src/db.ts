@@ -70,6 +70,8 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS subtotal DOUBLE PRECISION`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_by TEXT REFERENCES users(id)`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_at TEXT`,
+  // Seller branch for the input VAT report: '00000' head office, '00012' branch 12, '' unknown
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vendor_branch TEXT NOT NULL DEFAULT ''`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_invoice ON expenses(organization_id, vendor_taxid, invoice_number)`,
   // Invited accounts start with a temporary password that must be replaced before anything else.
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`,

@@ -92,9 +92,20 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - On phones, summary cards show as a 2×2 grid.
 - Tests: summary maths, VAT rules, scoping across properties, range validation, `limit`/`sort`. 22/22 pass.
 
+## ✅ Done, batch 7: accountant's answers (Western year · branch · .xlsx)
+- **Dates stay Western year** (dd/mm/yyyy), as the accountant asked.
+- **Seller branch is captured.** It's stored as the Revenue Department code in `expenses.vendor_branch`: `00000` = สำนักงานใหญ่, `00012` = สาขาที่ 00012, empty = unknown.
+  - The parser reads it from the seller block only, so the buyer's "สำนักงานใหญ่" is ignored. The Claude extractor returns it too.
+  - Typhoon and Tesseract warn when a tax invoice has a tax ID but no branch.
+  - The review form has a "Head office / branch" field that accepts `00012`, `สาขาที่ 12`, `สำนักงานใหญ่` or `Head office`; the API normalises them.
+- **Excel exports** (server-side, `exceljs`):
+  - `GET /reports/vat.xlsx`: input tax report (รายงานภาษีซื้อ). Thai/English headers, real date cells, tax IDs as text, a branch column, a highlighted cell where a claimable invoice has no branch, SUM totals, and a separate "not claimable yet" section. Frozen header and filter. Prints landscape on one page width.
+  - `GET /reports/summary.xlsx`: sheets By month (a column per property, with totals), By category, Input VAT, and Data (long format for pivots).
+  - The Reports page has **⬇ Excel** as the main button; CSV is still available. The CSV exports gained the branch column.
+- `npm audit` reports 2 moderate advisories in `uuid` (pulled in by `exceljs`). They concern a uuid function that exceljs's export path doesn't call.
+- Tests: branch parsing including the buyer-block trap, API validation, and both workbooks read back cell by cell. 23/23 pass.
+
 ## Still open
-- [ ] **Confirm the input VAT report format with your accountant.** Do they want Buddhist-era dates (e.g. 03/09/2569), a head-office/branch column (สำนักงานใหญ่/สาขา, not captured yet), or .xlsx instead of CSV?
-- [ ] Capture the seller's **branch number** on receipts (it is printed on Thai tax invoices and required on the input tax report).
 - [ ] "Is a full tax invoice" isn't stored on expenses yet (`is_tax_invoice` is only detected at OCR time). Store it and require it for "claimable".
 - [ ] **Email delivery for invites** (Resend, SES or similar) instead of copy-paste. This would also allow a self-service "forgot password", which today needs `npm run seed` on the server.
 - [ ] Adding someone reveals whether an email already has a DocFlow account. This is acceptable for a small team tool, but worth revisiting before outside users sign up.

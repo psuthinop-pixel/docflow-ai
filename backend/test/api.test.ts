@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { PGlite } from '@electric-sql/pglite';
 import { migrate, newId, now, type Db } from '../src/db.js';
 import { createApp } from '../src/app.js';
+import ExcelJS from 'exceljs';
 
 let server: Server;
 let base = '';
@@ -237,7 +238,7 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   const o2 = (await call('POST', '/organizations', a, { organization_name: 'Hotel B' })).body;
   const add = (org: string, f: Record<string, unknown>) => call('POST', '/expenses', a, { organization_id: org, currency: 'THB', ...f });
   const TAX = '0107537000521';
-  await add(o1._id, { status: 'approved', vendor_name: 'MEA', date: '2026-09-03', total: 1070, tax_amount: 70, vendor_taxid: TAX, category: 'Utilities', invoice_number: 'B2' });
+  await add(o1._id, { status: 'approved', vendor_name: 'MEA', date: '2026-09-03', total: 1070, tax_amount: 70, vendor_taxid: TAX, vendor_branch: 'สาขาที่ 12', category: 'Utilities', invoice_number: 'B2' });
   await add(o1._id, { status: 'confirmed', vendor_name: 'Makro', date: '2026-09-01', total: 535, tax_amount: 35, vendor_taxid: TAX, category: 'Supplies', invoice_number: 'A1' });
   await add(o1._id, { status: 'confirmed', vendor_name: 'Toll', date: '2026-09-10', total: 50, tax_amount: 3.27, vendor_taxid: '', category: 'Travel' });
   await add(o1._id, { status: 'draft', vendor_name: 'Draft', date: '2026-10-02', total: 214, tax_amount: 14, vendor_taxid: TAX, category: '' });
@@ -284,6 +285,37 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.deepEqual(vat.body.map((x: { vendor_name: string }) => x.vendor_name), ['Makro', 'MEA', 'Toll']);
   assert.deepEqual(vat.body.map((x: { claimable: boolean }) => x.claimable), [true, true, false]);
   assert.equal(vat.body[0].subtotal, 500);
+  assert.equal(vat.body[1].vendor_branch, '00012');
+  assert.equal((await add(o1._id, { vendor_branch: 'Ladprao' })).status, 400);
+
+  // Excel: VAT report and summary workbook
+  const xl = async (path: string) => {
+    const res = await fetch(base + path, { headers: { Authorization: `Bearer ${a}` } });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /spreadsheetml/);
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+    return { book, disposition: res.headers.get('content-disposition') ?? '' };
+  };
+  const v = await xl(`/reports/vat.xlsx?organization_id=${o1._id}&month=2026-09`);
+  assert.match(decodeURIComponent(v.disposition), /Hotel A input VAT 2026-09\.xlsx/);
+  const ws = v.book.getWorksheet('Input VAT')!;
+  const rows = Array.from(ws.getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
+  const makroRow = rows.find((r) => r[3] === 'Makro')!;
+  assert.equal(makroRow[0], 1);
+  assert.equal(makroRow[4], TAX);                 // text, leading zero kept
+  assert.equal(rows.find((r) => r[3] === 'MEA')![5], 'สาขาที่ 00012');
+  const totalRow = rows.find((r) => String(r[3]).includes('Total claimable'))!;
+  assert.equal((totalRow[7] as { result: number }).result, 105);
+  assert.ok(rows.some((r) => r[3] === 'Toll' && r[9] === 'Missing seller tax ID'));
+  assert.equal((ws.getCell(`B${rows.indexOf(makroRow)}`).value as Date).toISOString().slice(0, 10), '2026-09-01');
+
+  const sm = await xl('/reports/summary.xlsx?organization_id=all&from=2026-09&to=2026-10');
+  assert.deepEqual(sm.book.worksheets.map((w) => w.name), ['By month', 'By category', 'Input VAT', 'Data']);
+  const bm = Array.from(sm.book.getWorksheet('By month')!.getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
+  const grand = bm.find((r) => r[0] === 'Total')!;
+  assert.equal((grand[grand.length - 1] as { result: number }).result, 1655 + 214 + 2140);
+  assert.equal((await fetch(`${base}/reports/vat.xlsx?organization_id=${o1._id}&month=2026-09`, { headers: { Authorization: `Bearer ${b}` } })).status, 403);
   assert.equal((await call('GET', '/reports/vat?organization_id=all&month=2026-09', a)).status, 400);
   assert.equal((await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-13`, a)).status, 400);
 });
