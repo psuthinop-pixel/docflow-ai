@@ -4,7 +4,7 @@
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
   "functions": {
     "api/index.ts": {
-      "includeFiles": "node_modules/{tesseract.js,tesseract.js-core,@tesseract.js-data}/**"
+      "includeFiles": "node_modules/{tesseract.js,tesseract.js-core,@tesseract.js-data,pdfjs-dist/legacy/build}/**"
     }
   }
 }
