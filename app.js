@@ -176,7 +176,7 @@ window.App = {
                 <div class="topbar-avatar">${this.currentUser.name.charAt(0)}</div>
                 <div class="user-info">
                     <div class="user-name">${this.currentUser.name}</div>
-                    <div class="user-role">${this.currentUser.role}</div>
+                    <div class="user-role">${this.currentUser.email}</div>
                 </div>
                 <div style="font-size: 0.6rem; opacity: 0.5; margin-left: 4px;">▼</div>
 
