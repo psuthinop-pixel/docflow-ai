@@ -39,10 +39,20 @@ window.ReceiptsPage = {
             </div>
           </div>
 
+          <div class="mobile-capture">
+            <label class="btn btn-primary">📷 Take photo
+              <input type="file" accept="image/*" capture="environment" onchange="ReceiptsPage.onFileSelect(event)" hidden>
+            </label>
+            <label class="btn btn-secondary">🖼 Choose from phone
+              <input type="file" accept="image/jpeg,image/png,image/webp,.pdf" onchange="ReceiptsPage.onFileSelect(event)" hidden>
+            </label>
+          </div>
+
           <div id="filePreview" style="display:none;margin-top:16px">
             <div class="card" id="previewCard">
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
                 <span style="font-size:2rem" id="previewIcon">📄</span>
+                <img id="previewThumb" class="receipt-thumb" alt="" style="display:none">
                 <div style="flex:1">
                   <div style="font-weight:700" id="previewName">receipt.jpg</div>
                   <div style="font-size:0.78rem;color:var(--text-secondary)" id="previewSize">2.1 MB</div>
@@ -88,6 +98,9 @@ window.ReceiptsPage = {
         <div id="expensesTableContainer">
             ${this.renderExpensesTable()}
         </div>
+      </div>
+      <div class="modal-overlay" id="reviewModal" onclick="if (event.target === this) ReceiptsPage.closeReview()">
+        <div class="modal review-modal" id="reviewModalBody"></div>
       </div>
     `;
   },
@@ -271,7 +284,7 @@ window.ReceiptsPage = {
       </div>
       <div style="display:flex;gap:10px;margin-top:20px">
         <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="ReceiptsPage.confirmExpense()">
-          ${isEditing ? '💾 Update Expense' : '✅ Confirm & Save'}
+          ${isEditing ? '💾 Review & Update' : '🧐 Review & Submit'}
         </button>
         ${!isEditing ? `<button class="btn btn-secondary" onclick="ReceiptsPage.confirmExpense('draft')">Save draft</button>` : ''}
         <button class="btn btn-ghost" onclick="ReceiptsPage.discardOcr()">🗑 Discard</button>
@@ -362,10 +375,21 @@ window.ReceiptsPage = {
   },
   showFile(file) {
     this.currentFile = file;
+    if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+    this.previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    const thumb = document.getElementById('previewThumb');
+    if (thumb) {
+      thumb.style.display = this.previewUrl ? '' : 'none';
+      if (this.previewUrl) thumb.src = this.previewUrl;
+    }
+    document.getElementById('previewIcon').style.display = this.previewUrl ? 'none' : '';
     document.getElementById('filePreview').style.display = 'block';
     document.getElementById('previewName').textContent = file.name;
     document.getElementById('previewSize').textContent = (file.size / 1024).toFixed(0) + ' KB';
     document.getElementById('previewIcon').textContent = file.type === 'application/pdf' ? '📄' : '🖼️';
+    // On a phone, read the receipt straight away: one tap from camera to review
+    if (window.matchMedia('(max-width: 680px)').matches) this.runOCR();
+    else document.getElementById('filePreview').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   },
 
   viewExpense(idx) {
@@ -430,6 +454,7 @@ window.ReceiptsPage = {
       prog.style.width = '100%';
       stat.textContent = '✅ Extraction complete!';
       this.showResult();
+      document.getElementById('ocrResultPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
       console.error('OCR Error:', error);
       stat.textContent = '❌ ' + error.message;
@@ -440,7 +465,8 @@ window.ReceiptsPage = {
     }
   },
 
-  async confirmExpense(status, allowDuplicate = false) {
+  /** Collect the form, then show a read-only summary to check before anything is saved. */
+  confirmExpense(status) {
     if (!this.ocrResult) return;
     const panel = document.querySelector('.ocr-panel');
     if (!panel) return;
@@ -468,6 +494,57 @@ window.ReceiptsPage = {
     if (payload.currency === 'USD' && rate && (rate < 25 || rate > 45) &&
         !confirm(`The rate works out to ${(+rate).toFixed(4)} THB per USD, which looks wrong. Save anyway?`)) return;
 
+    this.pendingPayload = payload;
+    this.openReview(payload, r);
+  },
+
+  openReview(p, r) {
+    const isUpdate = !!r.id;
+    const issues = [];
+    if (!p.vendor_name) issues.push('Vendor is empty');
+    if (!p.date) issues.push('Date is empty');
+    if (!(Number(p.total) > 0)) issues.push('Total is zero');
+    if (p.vendor_taxid && p.vendor_taxid.length !== 13) issues.push('Tax ID is not 13 digits');
+    if ((r.duplicates || []).length) issues.push('Possible duplicate of an existing receipt');
+    const money = v => (v === '' || v == null ? '—' : Money.format(v, p.currency));
+    const row = (label, value) => `<div class="review-row"><span>${label}</span><strong>${value || '—'}</strong></div>`;
+    const statusLabel = { draft: 'Draft', confirmed: 'Submit for approval', approved: 'Approved', disabled: 'Disabled' }[p.status] || p.status;
+    const body = document.getElementById('reviewModalBody');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="modal-header">
+        <div style="font-weight:700;font-size:1.05rem">🧐 Review before ${isUpdate ? 'updating' : 'saving'}</div>
+        <button class="modal-close" onclick="ReceiptsPage.closeReview()">✕</button>
+      </div>
+      ${this.previewUrl && !isUpdate ? `<img class="review-image" src="${this.previewUrl}" alt="Receipt">` : ''}
+      ${issues.length ? `<div class="review-issues">${issues.map(i => `⚠️ ${esc(i)}`).join('<br>')}</div>` : ''}
+      <div class="review-total">${money(p.total)}<small>VAT ${money(p.tax_amount)}</small></div>
+      ${row('🏪 Vendor', esc(p.vendor_name))}
+      ${row('🆔 Tax ID', esc(p.vendor_taxid))}
+      ${row('🏢 Branch', esc(p.vendor_branch))}
+      ${row('🔢 Invoice No.', esc(p.invoice_number))}
+      ${row('📅 Date', p.date ? fmtDate(p.date) : '')}
+      ${row('🏷 Category', esc(p.category))}
+      ${p.currency !== 'THB' && p.total_thb ? row('฿ THB charged', Money.format(p.total_thb)) : ''}
+      ${row('📝 Notes', esc(p.notes))}
+      ${row('📌 Status', esc(statusLabel))}
+      <div class="review-actions">
+        <button class="btn btn-secondary" onclick="ReceiptsPage.closeReview()">✏️ Back to edit</button>
+        <button class="btn btn-primary" id="reviewSubmitBtn" onclick="ReceiptsPage.submitExpense()">${isUpdate ? '💾 Update' : '✅ Submit'}</button>
+      </div>`;
+    document.getElementById('reviewModal').classList.add('open');
+  },
+
+  closeReview() {
+    document.getElementById('reviewModal')?.classList.remove('open');
+  },
+
+  async submitExpense(allowDuplicate = false) {
+    const r = this.ocrResult, payload = this.pendingPayload;
+    if (!r || !payload) return;
+    const isUpdate = !!r.id;
+    const btn = document.getElementById('reviewSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
     try {
       if (isUpdate) {
         await ExpenseApi.updateExpense(r.id, payload);
@@ -482,25 +559,31 @@ window.ReceiptsPage = {
         });
         App.showToast('success', '✅ Receipt saved to database!');
       }
-      this.ocrDone = false;
-      this.ocrResult = null;
-      this.currentFile = null;
+      this.closeReview();
+      this.resetUpload();
       App.navigate('receipts');
     } catch (error) {
       if (error.status === 409 && !allowDuplicate) {
         const d = error.duplicates[0] || {};
         if (confirm(`This looks like a receipt already recorded (${d.vendor_name || ''} ฿${Number(d.total || 0).toLocaleString()}). Save anyway?`)) {
-          return this.confirmExpense(status, true);
+          return this.submitExpense(true);
         }
-        return;
+      } else {
+        console.error('Action failed:', error);
+        App.showToast('error', '❌ Could not complete: ' + error.message);
       }
-      console.error('Action failed:', error);
-      App.showToast('error', '❌ Could not complete: ' + error.message);
+      if (btn) { btn.disabled = false; btn.textContent = isUpdate ? '💾 Update' : '✅ Submit'; }
     }
   },
 
+  resetUpload() {
+    this.ocrDone = false; this.ocrResult = null; this.currentFile = null; this.pendingPayload = null;
+    if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+    this.previewUrl = null;
+  },
+
   discardOcr() {
-    this.ocrDone = false; this.ocrResult = null; this.currentFile = null;
+    this.resetUpload();
     App.navigate('receipts');
   }
 };

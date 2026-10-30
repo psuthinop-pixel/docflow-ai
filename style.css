@@ -2175,3 +2175,26 @@ body.auth-page .topbar {
         print-color-adjust: exact;
     }
 }
+
+/* ─── Mobile capture + review-before-submit ─── */
+.mobile-capture { display: none; gap: 10px; margin-top: 12px; }
+.mobile-capture .btn { flex: 1; justify-content: center; padding: 14px; }
+.receipt-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.review-modal { max-height: 90vh; overflow-y: auto; }
+.review-image { width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px; background: var(--bg-base); margin-bottom: 12px; }
+.review-issues { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; background: var(--amber-soft); color: var(--amber); font-size: 0.8rem; }
+.review-total { font-size: 1.6rem; font-weight: 800; text-align: center; margin: 4px 0 14px; }
+.review-total small { display: block; font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
+.review-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+.review-row span { color: var(--text-secondary); white-space: nowrap; }
+.review-row strong { text-align: right; word-break: break-word; }
+.review-actions { display: flex; gap: 10px; margin-top: 18px; }
+.review-actions .btn { flex: 1; justify-content: center; }
+
+@media (max-width: 680px) {
+    .mobile-capture { display: flex; }
+    .upload-zone { padding: 24px 16px; }
+    .modal-overlay { align-items: flex-end; }
+    .modal.review-modal { min-width: 0; width: 100vw; max-width: none; border-radius: 16px 16px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+    .ocr-field-input { font-size: 16px; } /* stop iOS zooming into inputs */
+}
