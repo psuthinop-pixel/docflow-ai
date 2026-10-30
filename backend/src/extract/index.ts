@@ -21,7 +21,18 @@ export function pickEngine(setting: string): Engine {
   return claudeEnabled() ? 'claude' : 'tesseract';
 }
 
+// PDF text layers can carry NUL bytes, which Postgres rejects in text and JSON values.
+const stripNul = (s: string) => s.replace(/\u0000/g, '');
+
 export async function extractReceipt(buf: Buffer, mime: string, categories: string[], setting = 'auto'): Promise<Extraction> {
+  const x = await extract(buf, mime, categories, setting);
+  const fields = Object.fromEntries(
+    Object.entries(x.fields).map(([k, v]) => [k, typeof v === 'string' ? stripNul(v) : v]),
+  ) as Extraction['fields'];
+  return { ...x, text: stripNul(x.text), fields };
+}
+
+async function extract(buf: Buffer, mime: string, categories: string[], setting: string): Promise<Extraction> {
   let engine = pickEngine(setting);
   if (engine === 'claude') {
     const c = await extractWithClaude(buf, mime, categories);
