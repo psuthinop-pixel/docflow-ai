@@ -28,7 +28,7 @@ Receipt capture and expense tracking for multiple companies, built for Thai SMEs
 ## Phase 0 — Foundation (1–2 weeks)
 Goal: the features that already work end to end run against a real backend.
 
-- [x] Backend in `backend/`: Node + TypeScript + Express, with SQLite (`node:sqlite`)
+- [x] Backend in `backend/`: Node + TypeScript + Express, with Postgres on Neon (`pg`)
 - [x] JWT auth: `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` (tokens revoked on logout)
 - [x] `GET/POST /organizations`, with a role per organization
 - [x] `GET/POST /expenses`, `PUT/DELETE /expenses/:id`, all scoped to the user's organizations
@@ -36,7 +36,8 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Frontend API URL set through `config.js` (`window.DOCFLOW_CONFIG`)
 - [x] `ExpenseApi.deleteExpense`
 - [x] API tests (`node:test`)
-- [ ] Choose a host and database for production (e.g. Postgres) — decision needed
+- [x] Production database: Neon Postgres (project `docflow`, ap-southeast-1)
+- [x] API host: Vercel serverless (`backend/api/index.ts`, region `sin1`)
 
 **Exit:** login → choose an organization → upload a receipt → save → it appears on the Dashboard, with no mock data on that path.
 
@@ -46,7 +47,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] Optional Claude extractor (`OCR_ENGINE=claude`, or `auto` when `ANTHROPIC_API_KEY` is set) — not yet tested live
 - [x] Extract the 13-digit tax ID (checksum validated), VAT, invoice number, date (พ.ศ. → ค.ศ., Thai month names, Thai digits)
 - [x] PDFs: text layer first (e-Tax), scanned PDFs rasterised with `pdftoppm`
-- [x] Original receipt file stored (`UPLOAD_DIR`) and viewable from the UI
+- [x] Original receipt file stored (in Postgres) and viewable from the UI
 - [x] Status workflow: draft → confirmed → approved (owner/admin only; approved records locked for members)
 - [x] Duplicate check: same file hash, or same seller tax ID + invoice number → warning on upload, 409 on save unless confirmed
 - [x] Review warnings: bad tax ID checksum, VAT not 7% of total, missing date/total, low OCR confidence

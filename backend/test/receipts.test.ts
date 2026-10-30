@@ -1,36 +1,35 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
-import { openDb, newId, now } from '../src/db.js';
+import { PGlite } from '@electric-sql/pglite';
+import { migrate, newId, now, one, type Db } from '../src/db.js';
 import { createApp } from '../src/app.js';
 import { shutdownOcr } from '../src/extract/ocr.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
-const uploadDir = mkdtempSync(path.join(tmpdir(), 'docflow-test-'));
 let server: Server;
 let base = '';
-let db: ReturnType<typeof openDb>;
+let db: Db;
 
 before(async () => {
-  db = openDb(':memory:');
+  db = new PGlite();
+  await migrate(db);
   for (const email of ['owner@test.com', 'member@test.com']) {
-    db.prepare('INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    await db.query('INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)', [
       newId(), email, 'T', bcrypt.hashSync('pw123456', 4), now(),
-    );
+    ]);
   }
-  server = createApp(db, [], { uploadDir, maxUploadMb: 5, ocrEngine: 'tesseract' }).listen(0);
+  server = createApp(db, [], { maxUploadMb: 5, ocrEngine: 'tesseract' }).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as { port: number }).port}`;
 });
 after(async () => {
   server.close();
   await shutdownOcr();
-  rmSync(uploadDir, { recursive: true, force: true });
 });
 
 async function call(method: string, p: string, token: string, body?: unknown) {
@@ -55,8 +54,8 @@ test('upload → extract → save → duplicate → approve', { timeout: 120_000
   const owner = await login('owner@test.com');
   const member = await login('member@test.com');
   const org = (await call('POST', '/organizations', owner, { organization_name: 'Atrium' })).body;
-  const memberId = (db.prepare("SELECT id FROM users WHERE email = 'member@test.com'").get() as { id: string }).id;
-  db.prepare('INSERT INTO memberships (user_id, organization_id, role) VALUES (?, ?, ?)').run(memberId, org._id, 'member');
+  const memberId = (await one<{ id: string }>(db, "SELECT id FROM users WHERE email = 'member@test.com'"))!.id;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [memberId, org._id, 'member']);
 
   const up = await call('POST', '/receipts', member, form(org._id, 'thai-tax-invoice.png', 'image/png'));
   assert.equal(up.status, 201);

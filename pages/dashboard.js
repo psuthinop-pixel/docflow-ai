@@ -106,19 +106,16 @@ window.DashboardPage = {
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
               ${[
-                { icon: '📧', name: 'Gmail', status: 'connected' },
-                { icon: '💬', name: 'LINE Bot', status: 'connected' },
-                { icon: '📁', name: 'Google Drive', status: 'connected' },
-                { icon: '📊', name: 'Google Sheets', status: 'connected' },
-                { icon: '🤖', name: 'AI OCR', status: 'connected' },
+                { icon: '📧', name: 'Gmail', status: 'planned' },
+                { icon: '💬', name: 'LINE Bot', status: 'planned' },
+                { icon: '📁', name: 'Google Drive', status: 'planned' },
+                { icon: '📊', name: 'Google Sheets', status: 'planned' },
+                { icon: '🤖', name: 'AI OCR', status: 'planned' },
             ].map(i => `
               <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
                 <span style="font-size:1.1rem">${i.icon}</span>
                 <span style="font-size:0.85rem;flex:1">${i.name}</span>
-                <div class="integration-status status-connected">
-                  <div class="status-dot"></div>
-                  <span style="color:var(--green);font-size:0.75rem">Active</span>
-                </div>
+                <span style="color:var(--text-muted);font-size:0.75rem">Coming soon</span>
               </div>`).join('')}
             </div>
           </div>

@@ -7,7 +7,7 @@ import { expensesRouter } from './routes/expenses.js';
 import { receiptsRouter, type ReceiptOptions } from './routes/receipts.js';
 import multer from 'multer';
 
-const defaultReceipts: ReceiptOptions = { uploadDir: 'uploads', maxUploadMb: 10, ocrEngine: 'auto' };
+const defaultReceipts: ReceiptOptions = { maxUploadMb: 10, ocrEngine: 'auto' };
 
 export function createApp(db: Db, corsOrigins: string[] = [], receipts: ReceiptOptions = defaultReceipts) {
   const app = express();
