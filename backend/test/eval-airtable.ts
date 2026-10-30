@@ -1,0 +1,82 @@
+// Accuracy on real receipts exported from Airtable (PCK table, "Tax Receipt" field).
+// Real documents stay OUTSIDE the repo. Usage:
+//   npx tsx test/eval-airtable.ts <dir>   where <dir> has manifest.jsonl + files/<recordId>.<ext>
+// manifest.jsonl rows: {id, date, vendor, vfull, total, exvat, vatreg, order, files:[{filename,type,url}]}
+//   optional: net_receipt, net_slip (either counts as the right total), skip: ["total", ...] for known-bad labels
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { extractReceipt } from '../src/extract/index.js';
+import { shutdownOcr } from '../src/extract/ocr.js';
+
+const dir = process.argv[2];
+if (!dir) { console.error('Usage: npx tsx test/eval-airtable.ts <dir>'); process.exit(1); }
+const engine = process.argv[3] ?? 'tesseract';
+
+const MIME: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+// Strip legal-form words so "บริษัท โฮม โปรดักส์ เซ็นเตอร์ จำกัด (มหาชน) สาขา..." ≈ "โฮมโปรดักส์เซ็นเตอร์".
+const core = (s: string) =>
+  s.toLowerCase()
+    .replace(/\(.*?\)|สาขา.*$|สำนักงานใหญ่|บริษัท|จำ\s*า?กัด|มหาชน|ห้างหุ้นส่วน|limited|ltd\.?|co\.,?|public|company|pbc|\(thailand\)|thailand/g, '')
+    .replace(/[^a-z0-9ก-๙]/g, '');
+
+// Records logged under a brand name; the document carries the legal name.
+const ALIASES: Record<string, RegExp> = {
+  ais: /แอดวานซ์ไวร์เลส|advanced\s*wireless/i, '3bb': /ทริปเปิลที|triple\s*t/i, nt: /โทรคมนาคมแห่งชาติ|national\s*telecom/i,
+  ค่าทางด่วน: /การทางพิเศษ|ทางยกระดับ|ทางด่วน|expressway|bem/i, supperhomemart: /ซูเปอร์?โฮมมาร์?ท|super\s*home/i,
+  aiga: /ไอก้?าคาร์?โก้?|aiga/i, anthropic: /anthropic/i, famtime: /fam\s*time|แฟมไทม์/i,
+};
+// OCR commonly drops tone marks (เพมโก้ → เพมโก); compare without them.
+const loose = (s: string) => core(s).replace(/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/g, '');
+const vendorOk = (got: string, want: string) => {
+  const alias = ALIASES[core(want)] ?? (core(want) === 'superhomemart' ? ALIASES.supperhomemart : undefined);
+  if (alias) return alias.test(got);
+  const g = loose(got), w = loose(want);
+  return g.length > 2 && (g.includes(w) || w.includes(g));
+};
+
+const rows = readFileSync(path.join(dir, 'manifest.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+const files = readdirSync(path.join(dir, 'files'));
+const score = { total: [0, 0], vendor: [0, 0], invoice: [0, 0], vat: [0, 0], date7: [0, 0], date60: [0, 0] };
+const report: string[] = [];
+
+for (const r of rows) {
+  const file = files.find((f) => f.startsWith(r.id + '.'));
+  if (!file) continue;
+  const mime = MIME[file.split('.').pop()!.toLowerCase()];
+  if (!mime) continue;
+  let f;
+  try {
+    f = (await extractReceipt(readFileSync(path.join(dir, 'files', file)), mime, [], engine)).fields;
+  } catch (e) {
+    report.push(`${r.id} ERROR ${(e as Error).message}`);
+    continue;
+  }
+  const line: string[] = [r.id];
+  const skip: string[] = r.skip ?? [];
+  const check = (k: keyof typeof score, ok: boolean, detail: string) => {
+    if (skip.includes(k) || (k.startsWith('date') && skip.includes('date'))) return void line.push(`-${k}`);
+    score[k][1]++; if (ok) score[k][0]++; line.push(`${ok ? '✓' : '✗'}${k}${ok ? '' : `(${detail})`}`);
+  };
+  // Receipt and bank-slip nets differ on some orders (fees); a document matching either is right.
+  const totals = [r.total, r.net_receipt, r.net_slip].filter((t) => typeof t === 'number');
+  check('total', f.total !== null && totals.some((t) => Math.abs(f.total! - t) < 0.01), `${f.total} vs ${[...new Set(totals)].join('/')}`);
+  const want = r.vfull ?? r.vendor ?? '';
+  if (want) check('vendor', vendorOk(f.vendor_name, want), `${f.vendor_name} vs ${want}`);
+  // Order numbers like 251201 are record dates, not document numbers — skip those.
+  if (r.order && !/^\d{6}$/.test(r.order)) check('invoice', f.invoice_number.toUpperCase() === r.order.toUpperCase(), `${f.invoice_number} vs ${r.order}`);
+  if ((r.vatreg?.name ?? r.vatreg) === 'Yes') check('vat', f.tax_amount !== null && Math.abs(f.tax_amount - (r.total - r.exvat)) <= 0.05, `${f.tax_amount} vs ${(r.total - r.exvat).toFixed(2)}`);
+  // Record date is when it was logged; the document date is usually within a week.
+  // date60 allows for receipts logged weeks after issue.
+  const days = f.date && r.date ? Math.abs(Date.parse(f.date) - Date.parse(r.date)) / 864e5 : Infinity;
+  if (r.date) check('date7', days <= 7, `${f.date} vs ${r.date}`);
+  if (r.date) check('date60', days <= 60, `${f.date} vs ${r.date}`);
+  report.push(line.join(' '));
+}
+
+const pct = ([a, b]: number[]) => (b ? `${((a / b) * 100).toFixed(0)}% (${a}/${b})` : 'n/a');
+const summary = Object.entries(score).map(([k, v]) => `${k}: ${pct(v)}`).join(' · ');
+console.log(summary);
+writeFileSync(path.join(dir, `report-${engine}.txt`), summary + '\n' + report.join('\n') + '\n');
+console.log(`details → ${path.join(dir, `report-${engine}.txt`)}`);
+if (!existsSync(path.join(dir, 'files'))) console.log('no files/ directory');
+await shutdownOcr();

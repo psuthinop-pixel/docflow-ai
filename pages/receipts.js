@@ -18,17 +18,17 @@ window.ReceiptsPage = {
       <div class="page-header">
         <div class="page-header-left">
           <h1>🔍 AI OCR Receipt Reader</h1>
-          <p>Upload a receipt image or PDF — AI extracts all data automatically</p>
+          <p>Upload a receipt image or PDF — fields are extracted on the server for you to review</p>
         </div>
       </div>
 
       <div class="grid-2" style="margin-bottom:20px">
         <div>
           <div class="upload-zone" id="uploadZone" ondragover="ReceiptsPage.onDragOver(event)" ondragleave="ReceiptsPage.onDragLeave(event)" ondrop="ReceiptsPage.onDrop(event)">
-            <input type="file" accept="image/*,.pdf" onchange="ReceiptsPage.onFileSelect(event)" id="fileInput">
+            <input type="file" accept="image/jpeg,image/png,image/webp,.pdf" onchange="ReceiptsPage.onFileSelect(event)" id="fileInput">
             <span class="upload-zone-icon">📤</span>
             <h3>Drop receipt here or click to browse</h3>
-            <p>Supports JPG, PNG, PDF · Max 10 MB</p>
+            <p>Supports JPG, PNG, WebP, PDF · Max 10 MB</p>
             <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
               <span class="badge badge-info">📷 Photo</span>
               <span class="badge badge-info">📄 PDF</span>
@@ -54,21 +54,11 @@ window.ReceiptsPage = {
           </div>
 
           <div class="card" style="margin-top:16px">
-            <div class="card-header">
-              <div class="card-title">📋 Demo Receipts</div>
-            </div>
-            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px">Click to simulate a real receipt being processed:</p>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              ${[
-        { name: 'Starbucks_receipt.jpg', vendor: 'Starbucks Siam Paragon', amount: 450, cat: 'Food & Beverage' },
-        { name: 'AWS_invoice_feb.pdf', vendor: 'Amazon Web Services', amount: 8450, cat: 'Software & SaaS' },
-        { name: 'Grab_feb17.png', vendor: 'Grab Thailand', amount: 320, cat: 'Transport' },
-      ].map(r => `
-              <button class="btn btn-secondary" style="justify-content:space-between;text-align:left" onclick="ReceiptsPage.loadDemo(${JSON.stringify(r).replace(/"/g, '&quot;')})">
-                <span>📄 ${r.name}</span>
-                <span class="badge badge-info">${r.cat}</span>
-              </button>`).join('')}
-            </div>
+            <div class="card-title" style="margin-bottom:8px">🇹🇭 Thai & English receipts</div>
+            <p style="font-size:0.82rem;color:var(--text-secondary)">
+              The server reads the receipt and fills in the vendor, 13-digit tax ID, invoice number, date (พ.ศ. converted), VAT and total.
+              Always check the fields before saving — warnings appear above the form.
+            </p>
           </div>
         </div>
 
@@ -79,7 +69,7 @@ window.ReceiptsPage = {
           <div class="card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;text-align:center">
             <div style="font-size:3rem;margin-bottom:16px">🤖</div>
             <div style="font-size:1.1rem;font-weight:700;margin-bottom:8px">AI OCR Ready</div>
-            <p style="font-size:0.85rem;color:var(--text-secondary);max-width:240px">Upload a receipt or select a demo to see extracted data appear here</p>
+            <p style="font-size:0.85rem;color:var(--text-secondary);max-width:240px">Upload a receipt to see the extracted data appear here</p>
           </div>
         </div>
       </div>
@@ -113,10 +103,10 @@ window.ReceiptsPage = {
               const hasTax = e.tax_amount && parseFloat(e.tax_amount) > 0;
               return `
             <tr>
-              <td>${e.vendor_name}</td>
-              <td>${new Date(e.date).toLocaleDateString()}</td>
+              <td>${esc(e.vendor_name)}${e.invoice_number ? `<div style="font-size:0.72rem;color:var(--text-secondary)">#${esc(e.invoice_number)}</div>` : ''}</td>
+              <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
               <td style="font-weight:700">฿${parseFloat(e.total).toLocaleString()}</td>
-              <td><span class="badge badge-info">${e.category}</span></td>
+              <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : ''}</td>
               <td>
                 ${hasTax 
                   ? `<span style="font-size:0.8rem;color:var(--green)">฿${parseFloat(e.tax_amount).toLocaleString()} VAT</span>` 
@@ -124,6 +114,8 @@ window.ReceiptsPage = {
               </td>
               <td><span class="badge badge-${e.status}">${e.status}</span></td>
               <td style="text-align:right">
+                ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')">📎</button>` : ''}
+                ${this.canApprove() && e.status === 'confirmed' ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">✏️ Edit</button>
               </td>
             </tr>`;
@@ -148,10 +140,24 @@ window.ReceiptsPage = {
     }
   },
 
+  categories() {
+    const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+    return org && org.categories && org.categories.length ? org.categories : MockData.categories;
+  },
+
+  canApprove() {
+    const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+    return !!org && ['owner', 'admin'].includes(org.role);
+  },
+
   renderOcrResult(r) {
     r = r || this.ocrResult;
     if (!r) return '';
     const isEditing = !!r.id;
+    const field = (name, label, value, attrs = '') =>
+      `<div class="ocr-field"><div class="ocr-field-label">${label}</div><input class="ocr-field-input" data-field="${name}" value="${esc(value)}" ${attrs}></div>`;
+    const cats = this.categories();
+    const engine = r.engine === 'claude' ? 'Claude' : 'Tesseract (Thai + English)';
     return `
     <div class="ocr-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
@@ -159,33 +165,47 @@ window.ReceiptsPage = {
           ${isEditing ? '✏️' : '✓'}
         </div>
         <div>
-          <div style="font-weight:700">${isEditing ? 'Edit Expense' : 'OCR Extraction Complete'}</div>
+          <div style="font-weight:700">${isEditing ? 'Edit Expense' : 'Extraction Complete'}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary)">
-            ${isEditing ? 'Update details below' : `Confidence: ${r.confidence}% · Review and confirm`}
+            ${isEditing ? 'Update details below' : `${engine}${r.confidence != null ? ` · Confidence ${r.confidence}%` : ''} · Review and confirm`}
           </div>
         </div>
         <span class="badge ${isEditing ? 'badge-info' : 'badge-confirmed'}" style="margin-left:auto">
-          ${isEditing ? 'Existing Record' : 'AI Extracted'}
+          ${isEditing ? 'Existing Record' : (r.is_tax_invoice ? 'Tax invoice' : 'Receipt')}
         </span>
       </div>
-      <div class="ocr-field"><div class="ocr-field-label">🏪 Vendor / Store</div><input class="ocr-field-input" value="${r.vendor}"></div>
-      <div class="ocr-field"><div class="ocr-field-label">📅 Date</div><input class="ocr-field-input" type="date" value="${r.date}"></div>
-      <div class="ocr-field"><div class="ocr-field-label">💰 Total Amount</div><input class="ocr-field-input" value="฿${r.amount}"></div>
-      <div class="ocr-field"><div class="ocr-field-label">🧾 Tax (VAT)</div><input class="ocr-field-input" value="฿${r.tax}"></div>
+      ${(r.duplicates || []).length ? `
+      <div style="padding:10px 12px;border-radius:8px;margin-bottom:12px;background:var(--red-soft);color:var(--red);font-size:0.8rem">
+        ⚠️ Possible duplicate of ${r.duplicates.map(d => `${esc(d.vendor_name)} ฿${Number(d.total).toLocaleString()}${d.invoice_number ? ` #${esc(d.invoice_number)}` : ''}`).join(', ')}
+      </div>` : ''}
+      ${(r.warnings || []).length ? `
+      <div style="padding:10px 12px;border-radius:8px;margin-bottom:12px;background:var(--amber-soft);color:var(--amber);font-size:0.8rem">
+        ${r.warnings.map(w => `• ${esc(w)}`).join('<br>')}
+      </div>` : ''}
+      ${field('vendor_name', '🏪 Vendor / Store', r.vendor_name)}
+      ${field('vendor_taxid', '🆔 Vendor Tax ID', r.vendor_taxid, 'inputmode="numeric" maxlength="13" placeholder="13 digits"')}
+      ${field('invoice_number', '🔢 Invoice / Receipt No.', r.invoice_number)}
+      ${field('date', '📅 Date', r.date || '', 'type="date"')}
+      ${field('total', '💰 Total Amount (incl. VAT)', r.total ?? '', 'inputmode="decimal"')}
+      ${field('tax_amount', '🧾 VAT', r.tax_amount ?? '', 'inputmode="decimal"')}
       <div class="ocr-field">
         <div class="ocr-field-label">🏷 Category</div>
-        <select class="ocr-field-input">
-          ${MockData.categories.map(c => `<option ${c === r.category ? 'selected' : ''}>${c}</option>`).join('')}
+        <select class="ocr-field-input" data-field="category">
+          <option value="">—</option>
+          ${cats.map(c => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}
         </select>
       </div>
-      <div class="ocr-field">
-        <div class="ocr-field-label">🏢 Organization ID</div>
-        <input class="ocr-field-input" value="${App.currentCompany}" readonly>
-      </div>
+      ${field('vendor_address', '📍 Vendor Address', r.vendor_address || '')}
       <div class="ocr-field" style="align-items: flex-start;">
         <div class="ocr-field-label" style="margin-top: 8px;">📝 Notes</div>
-        <textarea class="ocr-field-input" style="height: 120px; resize: none; font-family: monospace; font-size: 0.75rem;" placeholder="Raw OCR text...">${r.notes || ''}</textarea>
+        <textarea class="ocr-field-input" data-field="notes" style="height: 70px; resize: vertical;">${esc(r.notes || '')}</textarea>
       </div>
+      ${r.ocr_text ? `
+      <details style="margin-top:8px;font-size:0.75rem;color:var(--text-secondary)">
+        <summary style="cursor:pointer">Raw text read from the receipt</summary>
+        <pre style="white-space:pre-wrap;font-size:0.72rem;max-height:200px;overflow:auto">${esc(r.ocr_text)}</pre>
+      </details>` : ''}
+      ${r.receipt_id ? `<button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="ReceiptsPage.openFile('${r.receipt_id}')">📎 View original</button>` : ''}
       <div class="ocr-field" style="flex-direction:row;align-items:center;padding:12px;background:var(--bg-base);border-radius:8px;margin-top:10px;border:1px dashed var(--border)">
         <div style="flex:1">
             <div style="font-weight:700;font-size:0.85rem">🚫 Disable Expense</div>
@@ -197,9 +217,21 @@ window.ReceiptsPage = {
         <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="ReceiptsPage.confirmExpense()">
           ${isEditing ? '💾 Update Expense' : '✅ Confirm & Save'}
         </button>
+        ${!isEditing ? `<button class="btn btn-secondary" onclick="ReceiptsPage.confirmExpense('draft')">Save draft</button>` : ''}
         <button class="btn btn-ghost" onclick="ReceiptsPage.discardOcr()">🗑 Discard</button>
       </div>
     </div>`;
+  },
+
+  showResult() {
+    this.ocrDone = true;
+    const panel = document.getElementById('ocrResultPanel');
+    if (panel) {
+      panel.style.display = 'block';
+      panel.innerHTML = this.renderOcrResult();
+    }
+    const placeholder = document.getElementById('ocrPlaceholder');
+    if (placeholder) placeholder.style.display = 'none';
   },
 
   onDragOver(e) {
@@ -224,217 +256,139 @@ window.ReceiptsPage = {
     document.getElementById('previewSize').textContent = (file.size / 1024).toFixed(0) + ' KB';
     document.getElementById('previewIcon').textContent = file.type === 'application/pdf' ? '📄' : '🖼️';
   },
-  loadDemo(data) {
-    document.getElementById('filePreview').style.display = 'block';
-    document.getElementById('previewName').textContent = data.name;
-    document.getElementById('previewSize').textContent = '1.2 MB';
-    document.getElementById('previewIcon').textContent = data.name.endsWith('.pdf') ? '📄' : '🖼️';
-    this.demoData = data;
-    this.runOCR();
-  },
 
   viewExpense(idx) {
     const e = this.expenses[idx];
-    const expenseId = e.id || e._id; // Handle both id and MongoDB _id
     this.ocrResult = {
-      id: expenseId,
-      vendor: e.vendor_name,
+      ...e,
+      id: e.id || e._id,
       date: e.date && e.date.includes('T') ? e.date.split('T')[0] : e.date,
-      amount: e.total,
-      tax: e.tax_amount || 0,
-      category: e.category,
-      companyId: e.organization_id,
-      status: e.status, // Preserve status (important for 'disabled')
-      confidence: 100,
-      notes: e.notes
+      tax_amount: e.tax_amount || 0,
+      duplicates: [],
+      warnings: [],
     };
-    this.ocrDone = true;
-    const panel = document.getElementById('ocrResultPanel');
-    if (panel) {
-      panel.style.display = 'block';
-      panel.innerHTML = this.renderOcrResult();
-    }
-    const placeholder = document.getElementById('ocrPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
+    this.showResult();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
+  async openFile(receiptId) {
+    try {
+      const url = await ReceiptApi.fileUrl(receiptId);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      App.showToast('error', error.message);
+    }
+  },
+
+  async approve(idx) {
+    const e = this.expenses[idx];
+    try {
+      await ExpenseApi.updateExpense(e.id || e._id, { status: 'approved' });
+      App.showToast('success', '✔ Expense approved');
+      this.loadExpenses(App.currentCompany);
+    } catch (error) {
+      App.showToast('error', '❌ ' + error.message);
+    }
+  },
+
   async runOCR() {
-    if (this.ocrRunning) return;
+    if (this.ocrRunning || !this.currentFile) return;
     this.ocrRunning = true;
     const btn = document.getElementById('ocrBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
     const progressArea = document.getElementById('ocrProgressArea');
     if (progressArea) progressArea.style.display = 'block';
-
     const prog = document.getElementById('ocrProgress');
     const stat = document.getElementById('ocrStatusText');
-
-    let worker = null;
-    let ocrText = "";
-    let confidence = 97;
+    prog.style.width = '30%';
+    stat.textContent = 'Uploading and reading receipt (Thai + English)...';
 
     try {
-      if (this.currentFile && this.currentFile.type !== 'application/pdf') {
-        stat.textContent = 'Reading image file...';
-        prog.style.width = '10%';
-
-        const imageData = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => resolve(e.target.result);
-          reader.onerror = e => reject(new Error('Failed to read file'));
-          reader.readAsDataURL(this.currentFile);
-        });
-
-        stat.textContent = 'Initializing Tesseract...';
-        prog.style.width = '20%';
-
-        worker = await Tesseract.createWorker('eng', 1, {
-          workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-          langPath: 'https://tessdata.projectnaptha.com/4.0.0_best',
-          corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              const p = 20 + Math.round(m.progress * 70);
-              prog.style.width = p + '%';
-              stat.textContent = `Extracting text... (${p}%)`;
-            }
-          }
-        });
-
-        const result = await worker.recognize(imageData);
-        ocrText = result.data.text;
-        confidence = Math.round(result.data.confidence);
-        await worker.terminate();
-      } else {
-        // Logic for Demo or PDF (simulated real logic step since no image/direct PDF support)
-        stat.textContent = 'Analyzing document...';
-        prog.style.width = '30%';
-        await new Promise(r => setTimeout(r, 600));
-        prog.style.width = '60%';
-        stat.textContent = 'Extracting fields...';
-        await new Promise(r => setTimeout(r, 600));
-        ocrText = this.demoData
-          ? `DEMO RECEIPT: ${this.demoData.name}\nVendor: ${this.demoData.vendor}\nAmount: ${this.demoData.amount}`
-          : "PDF Content: Sample text extracted from PDF document.";
-      }
-
-      let extractedVendor = 'Starbucks Siam Paragon';
-      let extractedAmount = 450;
-      let extractedCat = 'Food & Beverage';
-
-      if (this.demoData) {
-        extractedVendor = this.demoData.vendor || extractedVendor;
-        extractedAmount = this.demoData.amount || extractedAmount;
-        extractedCat = this.demoData.cat || this.demoData.category || extractedCat;
-      } else if (ocrText) {
-        // Real extraction logic for uploaded files
-        const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
-        if (lines.length > 0) extractedVendor = lines[0]; // Assume top line is vendor
-
-        const matches = ocrText.match(/(\d{1,3}(,\d{3})*(\.\d{2})?)/g);
-        if (matches) {
-          const nums = matches.map(m => parseFloat(m.replace(/,/g, ''))).filter(n => n > 10);
-          if (nums.length > 0) extractedAmount = Math.max(...nums);
-        }
-      }
-
-      const existingId = this.ocrResult ? (this.ocrResult.id || this.ocrResult._id) : null;
-
+      const res = await ReceiptApi.upload(App.currentCompany, this.currentFile);
+      const f = res.fields;
       this.ocrResult = {
-        id: existingId,
-        vendor: extractedVendor,
-        date: '2026-02-22',
-        amount: extractedAmount,
-        tax: Math.round(extractedAmount * 0.07),
-        category: extractedCat,
-        companyId: App.currentCompany,
-        confidence: 97,
-        notes: ocrText
+        ...f,
+        receipt_id: res.receipt._id,
+        engine: res.receipt.engine,
+        confidence: res.receipt.confidence,
+        ocr_text: res.receipt.ocr_text,
+        warnings: res.warnings,
+        duplicates: res.duplicates,
       };
-
       prog.style.width = '100%';
       stat.textContent = '✅ Extraction complete!';
-
-      setTimeout(() => {
-        this.ocrRunning = false;
-        this.ocrDone = true;
-        document.getElementById('ocrResultPanel').style.display = 'block';
-        document.getElementById('ocrResultPanel').innerHTML = this.renderOcrResult();
-        document.getElementById('ocrPlaceholder').style.display = 'none';
-        if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
-      }, 500);
-
+      this.showResult();
     } catch (error) {
       console.error('OCR Error:', error);
-      stat.textContent = '❌ OCR Failed: ' + error.message;
-      if (worker) await worker.terminate();
+      stat.textContent = '❌ ' + error.message;
+      App.showToast('error', 'Extraction failed: ' + error.message);
+    } finally {
       this.ocrRunning = false;
       if (btn) { btn.disabled = false; btn.textContent = '🤖 Run AI OCR'; }
-      App.showToast('error', 'OCR failed: ' + error.message);
     }
   },
 
-  async confirmExpense() {
+  async confirmExpense(status, allowDuplicate = false) {
     if (!this.ocrResult) return;
-
     const panel = document.querySelector('.ocr-panel');
     if (!panel) return;
 
-    const isUpdate = !!(this.ocrResult && (this.ocrResult.id || this.ocrResult._id));
-    const targetId = isUpdate ? (this.ocrResult.id || this.ocrResult._id) : null;
-
-    const inputs = panel.querySelectorAll('.ocr-field-input');
-    const vendor = inputs[0].value;
-    const date = inputs[1].value;
-    const amountStr = inputs[2].value.replace('฿', '').replace(/,/g, '');
-    const taxStr = inputs[3].value.replace('฿', '').replace(/,/g, '');
-    const category = inputs[4].value;
-    const organizationId = inputs[5].value;
-    const notes = inputs[6].value;
+    const r = this.ocrResult;
+    const isUpdate = !!r.id;
+    const values = {};
+    panel.querySelectorAll('[data-field]').forEach(el => { values[el.dataset.field] = el.value.trim(); });
     const isDisabled = document.getElementById('disableExpenseToggle')?.checked;
-
-    const total = amountStr;
+    const amount = v => (v === '' ? 0 : v.replace(/[฿,\s]/g, ''));
 
     const payload = {
-      organization_id: organizationId,
-      status: isDisabled ? 'disabled' : 'confirmed',
-      vendor_name: vendor,
-      date: new Date(date).toISOString(),
-      total: total,
-      tax_amount: parseFloat(taxStr) || 0,
+      ...values,
+      vendor_taxid: values.vendor_taxid.replace(/\D/g, ''),
+      date: values.date || null,
+      total: amount(values.total),
+      tax_amount: amount(values.tax_amount),
       currency: 'THB',
-      category: category,
-      notes: notes,
-      vendor_address: '',
-      vendor_taxid: '',
+      status: isDisabled ? 'disabled' : (status || (r.status === 'approved' ? 'approved' : 'confirmed')),
     };
 
     try {
       if (isUpdate) {
-        // Remove organization_id for updates as the backend model doesn't accept it
-        const { organization_id, ...updatePayload } = payload;
-        await window.ExpenseApi.updateExpense(targetId, updatePayload);
+        await ExpenseApi.updateExpense(r.id, payload);
         App.showToast('success', '✅ Expense updated!');
       } else {
-        await window.ExpenseApi.createExpense(payload);
+        await ExpenseApi.createExpense({
+          ...payload,
+          organization_id: App.currentCompany,
+          receipt_id: r.receipt_id,
+          subtotal: r.subtotal,
+          allow_duplicate: allowDuplicate,
+        });
         App.showToast('success', '✅ Receipt saved to database!');
       }
-
       this.ocrDone = false;
       this.ocrResult = null;
-      this.demoData = null;
+      this.currentFile = null;
       this.initialized = false; // Trigger reload
       App.navigate('receipts');
-
     } catch (error) {
+      if (error.status === 409 && !allowDuplicate) {
+        const d = error.duplicates[0] || {};
+        if (confirm(`This looks like a receipt already recorded (${d.vendor_name || ''} ฿${Number(d.total || 0).toLocaleString()}). Save anyway?`)) {
+          return this.confirmExpense(status, true);
+        }
+        return;
+      }
       console.error('Action failed:', error);
       App.showToast('error', '❌ Could not complete: ' + error.message);
     }
   },
 
   discardOcr() {
-    this.ocrDone = false; this.ocrResult = null;
+    this.ocrDone = false; this.ocrResult = null; this.currentFile = null;
     App.navigate('receipts');
   }
 };
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
