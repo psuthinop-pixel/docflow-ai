@@ -130,8 +130,10 @@ test('members: invite, roles, last-owner guard, leave, password change', async (
   assert.equal(invited.status, 201);
   assert.equal(invited.body.email, 'new.person@test.com');
   assert.match(invited.body.temporary_password, /^[\w]{4}-[\w]{4}-[\w]{4}$/);
-  const n = (await call('POST', '/auth/login', undefined, { email: 'new.person@test.com', password: invited.body.temporary_password })).body.auth;
-  assert.ok(n);
+  const first = (await call('POST', '/auth/login', undefined, { email: 'new.person@test.com', password: invited.body.temporary_password })).body.auth;
+  assert.ok(first);
+  // Invited accounts must set their own password before using the API
+  const n = (await call('POST', '/auth/password', first, { current_password: invited.body.temporary_password, new_password: 'noi-password1' })).body.auth as string;
 
   // Existing account: added without a password; duplicates rejected
   const b = await call('POST', path, a, { email: 'b@test.com' });
@@ -172,7 +174,58 @@ test('members: invite, roles, last-owner guard, leave, password change', async (
 
   // Password change
   assert.equal((await call('POST', '/auth/password', n, { current_password: 'wrong', new_password: 'longenough' })).status, 400);
-  assert.equal((await call('POST', '/auth/password', n, { current_password: invited.body.temporary_password, new_password: 'short' })).status, 400);
-  assert.equal((await call('POST', '/auth/password', n, { current_password: invited.body.temporary_password, new_password: 'a-new-password' })).status, 200);
+  assert.equal((await call('POST', '/auth/password', n, { current_password: 'noi-password1', new_password: 'noi-password1' })).status, 400);
+  assert.equal((await call('POST', '/auth/password', n, { current_password: 'noi-password1', new_password: 'short' })).status, 400);
+  assert.equal((await call('POST', '/auth/password', n, { current_password: 'noi-password1', new_password: 'a-new-password' })).status, 200);
   assert.equal((await call('POST', '/auth/login', undefined, { email: 'new.person@test.com', password: 'a-new-password' })).status, 200);
+});
+
+test('invited account: must change password first, temp expiry, reset invite, other sessions signed out', async () => {
+  const a = await login('a@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Ratchada 13' })).body;
+  const path = `/organizations/${org._id}/members`;
+  const inv = (await call('POST', path, a, { email: 'fresh@test.com', name: 'Fresh' })).body;
+  assert.ok(inv.invite_expires_at);
+
+  const first = await call('POST', '/auth/login', undefined, { email: 'fresh@test.com', password: inv.temporary_password });
+  assert.equal(first.body.must_change_password, true);
+  const t = first.body.auth;
+
+  // Everything but the auth routes is blocked until the password is replaced
+  const blocked = await call('GET', '/organizations', t);
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.code, 'password_change_required');
+  assert.equal((await call('GET', `/expenses?organization_id=${org._id}`, t)).status, 403);
+  assert.equal((await call('GET', '/auth/me', t)).body.must_change_password, true);
+
+  // The owner sees the invite as pending and can issue a new temporary password; the old one stops working
+  const pending = (await call('GET', path, a)).body.find((m: { email: string }) => m.email === 'fresh@test.com');
+  assert.equal(pending.invite_pending, true);
+  const reset = await call('POST', `${path}/${inv.user_id}/reset-invite`, a);
+  assert.equal(reset.status, 200);
+  assert.notEqual(reset.body.temporary_password, inv.temporary_password);
+  assert.equal((await call('POST', '/auth/login', undefined, { email: 'fresh@test.com', password: inv.temporary_password })).status, 401);
+
+  // Expired temporary password is refused with a clear reason
+  await db.query('UPDATE users SET temp_password_expires_at = $1 WHERE id = $2', [new Date(Date.now() - 1000).toISOString(), inv.user_id]);
+  const expired = await call('POST', '/auth/login', undefined, { email: 'fresh@test.com', password: reset.body.temporary_password });
+  assert.equal(expired.status, 401);
+  assert.equal(expired.body.code, 'temporary_password_expired');
+  const again = (await call('POST', `${path}/${inv.user_id}/reset-invite`, a)).body;
+
+  // Two sessions; changing the password in one signs out the other and unlocks the account
+  const s1 = (await call('POST', '/auth/login', undefined, { email: 'fresh@test.com', password: again.temporary_password })).body.auth;
+  await new Promise((r) => setTimeout(r, 1100)); // tokens carry whole-second timestamps
+  const s2 = (await call('POST', '/auth/login', undefined, { email: 'fresh@test.com', password: again.temporary_password })).body.auth;
+  await new Promise((r) => setTimeout(r, 1100));
+  const changed = await call('POST', '/auth/password', s2, { current_password: again.temporary_password, new_password: 'fresh-password' });
+  assert.equal(changed.status, 200);
+  assert.ok(changed.body.auth);
+  assert.equal((await call('GET', '/auth/me', s1)).status, 401);
+  assert.equal((await call('GET', '/auth/me', s2)).status, 401);
+  assert.equal((await call('GET', '/organizations', changed.body.auth)).status, 200);
+  assert.equal((await call('GET', '/auth/me', changed.body.auth)).body.must_change_password, false);
+
+  // Once they chose their own password, nobody else can reset it
+  assert.equal((await call('POST', `${path}/${inv.user_id}/reset-invite`, a)).status, 409);
 });

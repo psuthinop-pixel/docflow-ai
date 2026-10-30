@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { randomInt } from 'node:crypto';
 import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
-import { membershipRole, requireAuth } from '../auth.js';
+import { membershipRole, requireAuth, TEMP_PASSWORD_DAYS } from '../auth.js';
 
 export const ROLES = ['owner', 'admin', 'member'] as const;
 type Role = (typeof ROLES)[number];
@@ -31,6 +31,8 @@ function canManage(actor: string, target: string | undefined, newRole?: Role): b
   return target !== 'owner' && newRole !== 'owner';
 }
 
+const tempExpiry = () => new Date(Date.now() + TEMP_PASSWORD_DAYS * 86_400_000).toISOString();
+
 async function ownerCount(db: Db, orgId: string): Promise<number> {
   const row = await one<{ n: string }>(
     db, `SELECT COUNT(*) AS n FROM memberships WHERE organization_id = $1 AND role = 'owner'`, [orgId],
@@ -51,7 +53,9 @@ export function membersRouter(db: Db): Router {
     if (!(await membershipRole(db, req.user!.id, orgId))) return res.status(404).json({ detail: 'Organization not found' });
     const rows = await all(
       db,
-      `SELECT u.id AS user_id, u.name, u.email, m.role FROM memberships m
+      `SELECT u.id AS user_id, u.name, u.email, m.role,
+              u.must_change_password AS invite_pending, u.temp_password_expires_at AS invite_expires_at
+       FROM memberships m
        JOIN users u ON u.id = m.user_id
        WHERE m.organization_id = $1
        ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.name`,
@@ -82,8 +86,9 @@ export function membersRouter(db: Db): Router {
       temporary_password = tempPassword();
       const id = newId();
       await db.query(
-        'INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)',
-        [id, addr, display, bcrypt.hashSync(temporary_password, 10), now()],
+        `INSERT INTO users (id, email, name, password_hash, created_at, must_change_password, temp_password_expires_at)
+         VALUES ($1, $2, $3, $4, $5, true, $6)`,
+        [id, addr, display, bcrypt.hashSync(temporary_password, 10), now(), tempExpiry()],
       );
       user = { id, name: display };
     } else if (await membershipRole(db, user.id, orgId)) {
@@ -93,8 +98,34 @@ export function membersRouter(db: Db): Router {
     await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [user.id, orgId, role]);
     res.status(201).json({
       user_id: user.id, name: user.name, email: addr, role,
-      ...(temporary_password ? { temporary_password } : {}),
+      ...(temporary_password ? { temporary_password, invite_expires_at: tempExpiry() } : {}),
     });
+  });
+
+  // Issue a fresh temporary password for an invite that was never completed (lost or expired).
+  // Only while the account still has its invite pending: once someone has chosen their own
+  // password, nobody else can reset it, because the account may belong to other properties too.
+  r.post('/:userId/reset-invite', async (req, res) => {
+    const { id: orgId, userId } = params(req);
+    const actor = await membershipRole(db, req.user!.id, orgId);
+    if (!actor) return res.status(404).json({ detail: 'Organization not found' });
+    const target = await membershipRole(db, userId, orgId);
+    if (!target) return res.status(404).json({ detail: 'Member not found' });
+    if (!canManage(actor, target)) return res.status(403).json({ detail: 'You cannot manage this member' });
+
+    const user = await one<{ name: string; email: string; must_change_password: boolean }>(
+      db, 'SELECT name, email, must_change_password FROM users WHERE id = $1', [userId],
+    );
+    if (!user!.must_change_password) {
+      return res.status(409).json({ detail: `${user!.name} has already set their own password` });
+    }
+    const temporary_password = tempPassword();
+    const invite_expires_at = tempExpiry();
+    await db.query(
+      'UPDATE users SET password_hash = $1, temp_password_expires_at = $2, password_changed_at = $3 WHERE id = $4',
+      [bcrypt.hashSync(temporary_password, 10), invite_expires_at, now(), userId],
+    );
+    res.json({ user_id: userId, name: user!.name, email: user!.email, role: target, temporary_password, invite_expires_at });
   });
 
   r.put('/:userId', async (req, res) => {

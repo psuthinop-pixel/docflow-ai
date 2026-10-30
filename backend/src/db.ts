@@ -71,6 +71,11 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_by TEXT REFERENCES users(id)`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_at TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_invoice ON expenses(organization_id, vendor_taxid, invoice_number)`,
+  // Invited accounts start with a temporary password that must be replaced before anything else.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password_expires_at TEXT`,
+  // Tokens issued before this moment are rejected, so a password change signs out other sessions.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TEXT`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

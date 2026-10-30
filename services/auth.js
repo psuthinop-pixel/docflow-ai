@@ -81,6 +81,9 @@ window.AuthApi = {
             throw new Error(error.detail || 'Failed to change password');
         }
 
-        return await response.json();
+        // Every earlier token, including this one, is now rejected: keep the replacement
+        const data = await response.json();
+        if (data.auth) localStorage.setItem('docflow-auth', data.auth);
+        return data;
     }
 };

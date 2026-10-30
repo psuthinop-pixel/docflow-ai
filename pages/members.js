@@ -83,6 +83,15 @@ window.MembersSection = {
                 .map(r => `<option value="${r}" ${r === m.role ? 'selected' : ''}>${r[0].toUpperCase() + r.slice(1)}</option>`).join('')}
           </select>`
             : `<span class="badge ${m.role === 'owner' ? 'badge-approved' : m.role === 'admin' ? 'badge-info' : 'badge-draft'}">${esc(m.role)}</span>`;
+        const expired = m.invite_pending && m.invite_expires_at && Date.parse(m.invite_expires_at) < Date.now();
+        const inviteBadge = m.invite_pending ? `
+          <span class="badge ${expired ? 'badge-error' : 'badge-pending'}" style="font-size:0.68rem"
+            title="${expired ? 'Their temporary password has expired' : 'They haven\'t signed in and set a password yet'}">
+            ${expired ? 'Invite expired' : `Invite pending · until ${fmtDate(m.invite_expires_at)}`}
+          </span>` : '';
+        const resend = m.invite_pending && manage
+            ? `<button class="btn btn-ghost btn-sm" onclick="MembersSection.resetInvite('${esc(m.user_id)}')" title="Issue a new temporary password">🔑 New password</button>`
+            : '';
         const action = isMe
             ? `<button class="btn btn-ghost btn-sm" onclick="MembersSection.remove('${esc(m.user_id)}', true)">Leave</button>`
             : manage ? `<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="MembersSection.remove('${esc(m.user_id)}')" aria-label="Remove ${esc(m.name)}">Remove</button>` : '';
@@ -91,11 +100,11 @@ window.MembersSection = {
             <div style="display:flex;align-items:center;gap:10px;min-width:0">
               <div class="topbar-avatar" style="width:32px;height:32px;font-size:0.8rem;flex-shrink:0">${esc((m.name || m.email).charAt(0).toUpperCase())}</div>
               <div style="min-width:0">
-                <div style="color:var(--text-primary);font-weight:600">${esc(m.name)}${isMe ? ' <span style="color:var(--text-muted);font-weight:400">(you)</span>' : ''}</div>
+                <div style="color:var(--text-primary);font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(m.name)}${isMe ? ' <span style="color:var(--text-muted);font-weight:400">(you)</span>' : ''}${inviteBadge}</div>
                 <div style="font-size:0.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis">${esc(m.email)}</div>
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">${roleSel}${action}</div>
+            <div style="display:flex;align-items:center;gap:8px">${resend}${roleSel}${action}</div>
           </div>`;
     },
 
@@ -103,9 +112,10 @@ window.MembersSection = {
         const i = this.invite;
         return `
         <div class="invite-box" role="status">
-          <div style="font-weight:700;margin-bottom:6px">✅ Account created for ${esc(i.name)}</div>
+          <div style="font-weight:700;margin-bottom:6px">✅ ${i.reissued ? 'New temporary password' : 'Account created'} for ${esc(i.name)}</div>
           <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:10px">
-            Send these sign-in details privately (e.g. LINE). The password is shown only once. Ask them to change it in Settings → Account.
+            Send these sign-in details privately (e.g. LINE). The password is shown only once and works until
+            ${esc(fmtDate(i.invite_expires_at))}. They'll be asked to choose their own password when they sign in.
           </div>
           <div class="invite-creds">
             <div><span>Sign in at</span><code>${esc(location.origin)}</code></div>
@@ -195,9 +205,21 @@ window.MembersSection = {
         }
     },
 
+    async resetInvite(userId) {
+        const m = this.members.find(x => x.user_id === userId);
+        if (!confirm(`Issue a new temporary password for ${m ? m.name : 'this member'}? The previous one stops working.`)) return;
+        try {
+            const r = await MemberApi.resetInvite(this.orgId, userId);
+            this.invite = { ...r, reissued: true };
+            await this.load(true);
+        } catch (error) {
+            App.showToast('error', '❌ ' + error.message, 4000);
+        }
+    },
+
     async copyInvite() {
         const i = this.invite;
-        const text = `You've been added to DocFlow AI.\nSign in at ${location.origin}\nEmail: ${i.email}\nTemporary password: ${i.temporary_password}\nPlease change it in Settings → Account after signing in.`;
+        const text = `You've been added to DocFlow AI.\nSign in at ${location.origin}\nEmail: ${i.email}\nTemporary password: ${i.temporary_password} (valid until ${fmtDate(i.invite_expires_at)})\nYou'll be asked to choose your own password when you sign in.`;
         try {
             await navigator.clipboard.writeText(text);
             App.showToast('success', '📋 Copied, ready to paste into LINE');

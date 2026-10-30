@@ -16,6 +16,12 @@ window.App = {
             try {
                 this.currentUser = await AuthApi.getMe();
 
+                // Invited users must replace their temporary password before anything else loads
+                if (this.currentUser.must_change_password) {
+                    this.navigate('set-password');
+                    return this.bindSwitcher();
+                }
+
                 // Fetch organizations
                 this.organizations = await OrganizationApi.list();
 
@@ -42,6 +48,10 @@ window.App = {
             this.navigate('login');
         }
 
+        this.bindSwitcher();
+    },
+
+    bindSwitcher() {
         const switcher = document.getElementById('companySwitcher');
         if (switcher) {
             switcher.addEventListener('change', (e) => {
@@ -80,6 +90,8 @@ window.App = {
 
         if (page !== 'login' && !token) {
             page = 'login';
+        } else if (token && this.currentUser?.must_change_password) {
+            page = 'set-password';
         } else if (token) {
             if (!savedCompany && page !== 'logout') {
                 page = 'select-organization';
@@ -102,7 +114,7 @@ window.App = {
         }
 
         // Hide sidebar and topbar on login & select-organization pages
-        const isAuthPage = page === 'login' || page === 'select-organization';
+        const isAuthPage = ['login', 'select-organization', 'set-password'].includes(page);
         document.body.classList.toggle('auth-page', isAuthPage);
         this.toggleSidebar(false);
 
@@ -114,6 +126,11 @@ window.App = {
 
         if (page === 'login') {
             content.innerHTML = LoginPage.render();
+            return;
+        }
+
+        if (page === 'set-password') {
+            content.innerHTML = SetPasswordPage.render();
             return;
         }
 
@@ -330,6 +347,30 @@ window.App = {
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+// A session can end server-side (password changed on another device, logout elsewhere, expiry).
+// Any 401 from the API outside the login call sends the user back to the login screen once.
+(function watchSessions() {
+    const nativeFetch = window.fetch.bind(window);
+    let ending = false;
+    window.fetch = async (input, init) => {
+        const res = await nativeFetch(input, init);
+        const url = typeof input === 'string' ? input : input.url;
+        if (res.status === 401 && url.startsWith(window.docflow_url) && !url.endsWith('/auth/login')
+            && localStorage.getItem('docflow-auth') && !ending) {
+            ending = true;
+            localStorage.removeItem('docflow-auth');
+            localStorage.removeItem('docflow-company');
+            App.currentUser = null;
+            App.currentCompany = null;
+            App.organizations = [];
+            App.showToast('info', 'Your session ended. Please sign in again.', 4000);
+            App.navigate('login');
+            setTimeout(() => { ending = false; }, 1000);
+        }
+        return res;
+    };
+})();
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') App.toggleSidebar(false);
 });

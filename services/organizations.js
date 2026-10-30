@@ -134,5 +134,10 @@ window.MemberApi = {
 
     remove(orgId, userId) {
         return this.request('DELETE', orgId, `/${encodeURIComponent(userId)}`);
+    },
+
+    /** New temporary password for an invite that was never completed */
+    resetInvite(orgId, userId) {
+        return this.request('POST', orgId, `/${encodeURIComponent(userId)}/reset-invite`);
     }
 };

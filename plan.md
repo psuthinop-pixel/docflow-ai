@@ -66,15 +66,25 @@ From the dashboard UX review of 30 Oct 2026. Items are ordered by priority; each
 - New API: `GET/POST /organizations/:id/members`, `PUT/DELETE /organizations/:id/members/:userId`, `POST /auth/password`. Covered by tests (20/20 pass).
 - Toasts no longer show two icons when the message starts with its own emoji.
 
+## ✅ Done, batch 5: forced password change for invites
+- Invited accounts are flagged `must_change_password`, and the temporary password expires after **7 days** (`TEMP_PASSWORD_DAYS` in `backend/src/auth.ts`).
+- While the flag is set, the server returns `403 password_change_required` for everything except `/auth/me`, `/auth/password` and `/auth/logout`. The app shows a "Set your password" screen that can't be skipped, including after a reload.
+- Signing in with an expired temporary password is refused with a clear message (`temporary_password_expired`).
+- **A password change signs out every other session.** Tokens issued before `password_changed_at` are rejected, and the device that made the change gets a fresh token. The check reuses the existing revoked-token query, so it adds no extra database round trip.
+- Members list shows "Invite pending · until <date>" or "Invite expired". Owners and admins get **🔑 New password**, which issues a fresh temporary password, but only while the invite is pending. Once someone has chosen their own password, nobody else can reset it.
+- When the API reports a session has ended, the app sends the user to the login screen with "Your session ended", instead of showing error cards.
+- The `npm run seed` password reset clears the invite flag and signs out old sessions.
+- Tests: forced change, expiry, re-issue, other sessions signed out, no reset after setup. 21/21 pass.
+
 ## Still open
-- [ ] **Temporary passwords never expire, and nothing forces a change.** Add `must_change_password` on users, and show a "Set your password" screen after the first login. Changing a password also doesn't sign out the user's other sessions (tokens are revoked one at a time on logout).
-- [ ] **Email delivery for invites** (Resend, SES or similar) instead of copy-paste. This would also allow "forgot password", which today needs the seed script.
+- [ ] **Email delivery for invites** (Resend, SES or similar) instead of copy-paste. This would also allow a self-service "forgot password", which today needs `npm run seed` on the server.
 - [ ] Adding someone reveals whether an email already has a DocFlow account. This is acceptable for a small team tool, but worth revisiting before outside users sign up.
-- [ ] Last-owner check is not atomic: two owners demoting each other at the same moment could leave none. Unlikely at this team size; fix with a transaction or a deferred constraint if it matters.
+- [ ] Last-owner check is not atomic: two owners demoting each other at the same moment could leave none. Unlikely at this team size.
+- [ ] Removing a member doesn't end their current session. They lose access to the property's data immediately, but stay signed in to any other properties they belong to (which is correct).
 - [ ] The mock pages (email, line, drive, reports) still put `MockData` into `innerHTML` unescaped. Fix this when each one is wired to real data.
-- [ ] Renaming or removing a category doesn't touch existing expenses that use it. Decide whether to offer "rename everywhere".
+- [ ] Renaming or removing a category doesn't touch existing expenses that use it.
 - [ ] Organization picker: currency shows "N/A" when the API omits it.
-- [ ] Topbar on phones: the avatar and theme toggle take about a third of the width. Now that Settings has a theme switch, consider moving the toggle there.
+- [ ] Topbar on phones: consider moving the theme toggle into Settings only.
 
 ## Phase 2 tie-in: move aggregation to the server
 - [ ] The dashboard aggregates every expense in the browser. Fine at hundreds of rows, slow at thousands. Add `GET /expenses/summary?organization_id&month` (spend, prior month, counts by status, VAT, by category) and use it for the KPIs.
