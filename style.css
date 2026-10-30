@@ -472,6 +472,84 @@ ul {
     color: var(--red);
 }
 
+.kpi-card-link {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+}
+
+.kpi-card-link:focus-visible {
+    outline: 2px solid var(--kpi-color, var(--accent));
+    outline-offset: 2px;
+}
+
+/* ─── Activity feed ─── */
+.activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-icon-wrap {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: var(--bg-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+}
+
+.activity-text {
+    font-size: 0.85rem;
+}
+
+.activity-time {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+/* ─── Filter chips ─── */
+.filter-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.filter-chip {
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 5px 12px;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.filter-chip:hover {
+    color: var(--text-primary);
+}
+
+.filter-chip.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
 /* ─── Grid Layouts ─── */
 .grid-2 {
     display: grid;
@@ -891,7 +969,6 @@ ul {
 .user-role {
     font-size: 0.7rem;
     color: var(--text-muted);
-    text-transform: capitalize;
 }
 
 /* User Dropdown */

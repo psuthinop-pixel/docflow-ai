@@ -52,6 +52,7 @@ window.App = {
                     return;
                 }
                 this.currentCompany = e.target.value;
+                this.draftCount = 0;
                 localStorage.setItem('docflow-company', this.currentCompany);
                 this.updateCompanyDot();
                 this.navigate(this.currentPage);
@@ -134,7 +135,7 @@ window.App = {
         // Update topbar title
         const titles = {
             dashboard: { title: 'Dashboard', sub: 'Overview' },
-            receipts: { title: 'AI OCR Receipt Reader', sub: 'Upload & Extract' },
+            receipts: { title: 'Receipts', sub: 'Upload & Review' },
             email: { title: 'Email Scraper', sub: 'Inbox Automation' },
             line: { title: 'LINE Chatbot', sub: 'Messaging Workflow' },
             drive: { title: 'Google Drive', sub: 'File Automation' },
@@ -173,19 +174,19 @@ window.App = {
         panel.innerHTML = `
             <div class="user-dropdown-overlay" id="userDropdownOverlay" onclick="App.closeUserDropdown()"></div>
             <div class="user-panel" onclick="App.toggleUserDropdown()">
-                <div class="topbar-avatar">${this.currentUser.name.charAt(0)}</div>
+                <div class="topbar-avatar">${esc(this.currentUser.name.charAt(0))}</div>
                 <div class="user-info">
-                    <div class="user-name">${this.currentUser.name}</div>
-                    <div class="user-role">${this.currentUser.email}</div>
+                    <div class="user-name">${esc(this.currentUser.name)}</div>
+                    <div class="user-role">${esc(this.currentUser.email)}</div>
                 </div>
                 <div style="font-size: 0.6rem; opacity: 0.5; margin-left: 4px;">▼</div>
 
                 <div class="user-dropdown" id="userDropdown">
                     <div class="user-dropdown-header">
-                        <div class="user-dropdown-avatar">${this.currentUser.name.charAt(0)}</div>
+                        <div class="user-dropdown-avatar">${esc(this.currentUser.name.charAt(0))}</div>
                         <div class="user-dropdown-info">
-                            <div class="user-name">${this.currentUser.name}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted)">${this.currentUser.email || 'user@docflow.ai'}</div>
+                            <div class="user-name">${esc(this.currentUser.name)}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted)">${esc(this.currentUser.email || '')}</div>
                         </div>
                     </div>
                     <div class="user-dropdown-actions">
@@ -248,7 +249,7 @@ window.App = {
 
         let html = this.organizations.map(o => {
             const id = o._id || o.id;
-            return `<option value="${id}" ${this.currentCompany === id ? 'selected' : ''}>${o.organization_name}</option>`;
+            return `<option value="${esc(id)}" ${this.currentCompany === id ? 'selected' : ''}>${esc(o.organization_name)}</option>`;
         }).join('');
 
         html += `<option value="manage">⚙️ Manage Organizations</option>`;
@@ -269,13 +270,21 @@ window.App = {
         this.updateSidebarBadges();
     },
 
+    // Drafts of the current organization, refreshed whenever a page loads its expenses
+    draftCount: 0,
+
+    setDraftCount(expenses) {
+        this.draftCount = expenses.filter(e => e.status === 'draft').length;
+        this.updateSidebarBadges();
+    },
+
     updateSidebarBadges() {
-        const pending = MockData.expenses.filter(e =>
-            e.status === 'pending' &&
-            (this.currentCompany === 'all' || e.companyId === this.currentCompany)
-        ).length;
         const badge = document.getElementById('receiptsBadge');
-        if (badge) { badge.textContent = pending; badge.style.display = pending ? 'inline-flex' : 'none'; }
+        if (badge) {
+            badge.textContent = this.draftCount;
+            badge.title = `${this.draftCount} draft${this.draftCount === 1 ? '' : 's'} to review`;
+            badge.style.display = this.draftCount ? 'inline-flex' : 'none';
+        }
     },
 
     showToast(type, message, duration = 2000) {
@@ -297,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => App.init());
 // Page nav shortcuts
 window.Pages = {
     receipts: () => App.navigate('receipts'),
+    receiptsFiltered: (status) => { ReceiptsPage.statusFilter = status; App.navigate('receipts'); },
     email: () => App.navigate('email'),
     sheets: () => App.navigate('sheets'),
     reports: () => App.navigate('reports'),
@@ -304,3 +314,30 @@ window.Pages = {
     drive: () => App.navigate('drive'),
     settings: () => App.navigate('settings'),
 };
+
+// ─── Shared formatting helpers ───
+function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function fmtTHB(v) {
+    const n = parseFloat(v) || 0;
+    return '฿' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Receipt dates are stored as 'YYYY-MM-DD'; format them without a timezone shift
+function fmtDate(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    if (!m) return '—';
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtDateTime(v) {
+    const d = new Date(v);
+    if (!v || isNaN(d)) return '—';
+    return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function sourceLabel(e) {
+    return e.receipt_id ? '📤 Upload' : '✍️ Manual';
+}

@@ -6,6 +6,7 @@ window.ReceiptsPage = {
   ocrResult: null,
   expenses: [],
   loading: false,
+  statusFilter: 'all',
 
   render(companyId) {
     if (!this.initialized || this.lastCompanyId !== companyId) {
@@ -17,7 +18,7 @@ window.ReceiptsPage = {
     return `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>🔍 AI OCR Receipt Reader</h1>
+          <h1>🔍 Receipts</h1>
           <p>Upload a receipt image or PDF — fields are extracted on the server for you to review</p>
         </div>
       </div>
@@ -78,10 +79,10 @@ window.ReceiptsPage = {
         <div class="card-header">
           <div>
             <div class="card-title">💳 Processed Receipts</div>
-            <div class="card-subtitle">${this.expenses.length} receipts uploaded</div>
+            <div class="card-subtitle" id="expensesSubtitle">${this.expenses.length} records</div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="Pages.sheets()">View All →</button>
         </div>
+        <div class="filter-chips" id="statusFilterChips">${this.renderFilterChips()}</div>
         <div id="expensesTableContainer">
             ${this.renderExpensesTable()}
         </div>
@@ -89,9 +90,40 @@ window.ReceiptsPage = {
     `;
   },
 
+  renderFilterChips() {
+    const filters = [
+      ['all', 'All'], ['draft', 'Drafts'], ['confirmed', 'Awaiting approval'], ['approved', 'Approved'], ['disabled', 'Disabled'],
+    ];
+    return filters.map(([key, label]) => {
+      const count = key === 'all' ? this.expenses.length : this.expenses.filter(e => e.status === key).length;
+      return `<button class="filter-chip ${this.statusFilter === key ? 'active' : ''}" onclick="ReceiptsPage.setFilter('${key}')">${label} · ${count}</button>`;
+    }).join('');
+  },
+
+  setFilter(status) {
+    this.statusFilter = status;
+    this.refreshList();
+  },
+
+  refreshList() {
+    const container = document.getElementById('expensesTableContainer');
+    if (container) container.innerHTML = this.renderExpensesTable();
+    const chips = document.getElementById('statusFilterChips');
+    if (chips) chips.innerHTML = this.renderFilterChips();
+    const subtitle = document.getElementById('expensesSubtitle');
+    if (subtitle) subtitle.textContent = `${this.expenses.length} records`;
+  },
+
   renderExpensesTable() {
     if (this.loading) return '<div style="padding:20px;text-align:center">Loading expenses...</div>';
-    if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts found.</div>';
+    if (this.loadError) return `<div style="padding:20px;text-align:center;color:var(--red)">⚠️ Couldn't load expenses: ${esc(this.loadError)} <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="ReceiptsPage.loadExpenses(App.currentCompany)">↻ Retry</button></div>`;
+    if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts yet — upload one above.</div>';
+
+    // Keep each record's index into this.expenses: the row actions look it up by index
+    const rows = this.expenses
+      .map((e, idx) => ({ e, idx }))
+      .filter(({ e }) => this.statusFilter === 'all' || e.status === this.statusFilter);
+    if (rows.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Nothing here — no records with this status.</div>';
 
     return `
         <table class="data-table">
@@ -99,20 +131,20 @@ window.ReceiptsPage = {
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
           <tbody>
-            ${this.expenses.map((e, idx) => {
+            ${rows.map(({ e, idx }) => {
               const hasTax = e.tax_amount && parseFloat(e.tax_amount) > 0;
               return `
             <tr>
               <td>${esc(e.vendor_name)}${e.invoice_number ? `<div style="font-size:0.72rem;color:var(--text-secondary)">#${esc(e.invoice_number)}</div>` : ''}</td>
-              <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-              <td style="font-weight:700">฿${parseFloat(e.total).toLocaleString()}</td>
+              <td>${fmtDate(e.date)}</td>
+              <td style="font-weight:700">${fmtTHB(e.total)}</td>
               <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : ''}</td>
               <td>
                 ${hasTax 
-                  ? `<span style="font-size:0.8rem;color:var(--green)">฿${parseFloat(e.tax_amount).toLocaleString()} VAT</span>` 
+                  ? `<span style="font-size:0.8rem;color:var(--green)">${fmtTHB(e.tax_amount)} VAT</span>` 
                   : `<span class="badge badge-error" style="background:rgba(239, 68, 68, 0.1);color:rgb(239, 68, 68);border:1px solid rgba(239, 68, 68, 0.2)">⚠️ No Tax</span>`}
               </td>
-              <td><span class="badge badge-${e.status}">${e.status}</span></td>
+              <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
               <td style="text-align:right">
                 ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')">📎</button>` : ''}
                 ${this.canApprove() && e.status === 'confirmed' ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
@@ -127,16 +159,17 @@ window.ReceiptsPage = {
 
   async loadExpenses(companyId) {
     this.loading = true;
+    this.loadError = null;
+    this.refreshList();
     try {
       this.expenses = await window.ExpenseApi.listExpenses(companyId);
-      const container = document.getElementById('expensesTableContainer');
-      if (container) container.innerHTML = this.renderExpensesTable();
+      App.setDraftCount(this.expenses);
     } catch (error) {
       console.error('Failed to load expenses:', error);
+      this.loadError = error.message || 'Unknown error';
     } finally {
       this.loading = false;
-      const container = document.getElementById('expensesTableContainer');
-      if (container) container.innerHTML = this.renderExpensesTable();
+      this.refreshList();
     }
   },
 
@@ -388,7 +421,3 @@ window.ReceiptsPage = {
     App.navigate('receipts');
   }
 };
-
-function esc(v) {
-  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
