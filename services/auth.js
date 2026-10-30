@@ -59,5 +59,31 @@ window.AuthApi = {
         // Clear local session regardless of server response
         localStorage.removeItem('docflow-auth');
         return response.ok;
+    },
+
+    /**
+     * Change the signed-in user's password
+     * @param {string} currentPassword
+     * @param {string} newPassword - at least 8 characters
+     */
+    async changePassword(currentPassword, newPassword) {
+        const token = localStorage.getItem('docflow-auth');
+        if (!token) throw new Error('No auth token found');
+
+        const response = await fetch(`${window.docflow_url}/auth/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Failed to change password' }));
+            throw new Error(error.detail || 'Failed to change password');
+        }
+
+        // Every earlier token, including this one, is now rejected: keep the replacement
+        const data = await response.json();
+        if (data.auth) localStorage.setItem('docflow-auth', data.auth);
+        return data;
     }
 };

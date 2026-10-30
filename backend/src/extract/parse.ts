@@ -3,6 +3,8 @@
 export interface ReceiptFields {
   vendor_name: string;
   vendor_taxid: string;
+  /** Revenue Department branch code: '00000' head office, '00012' branch 12, '' not found */
+  vendor_branch: string;
   vendor_address: string;
   invoice_number: string;
   date: string | null; // ISO date (YYYY-MM-DD), Gregorian
@@ -210,6 +212,27 @@ function cleanVendorLine(line: string): string {
     .trim();
 }
 
+/**
+ * Seller's branch as printed on a Thai tax invoice: "สำนักงานใหญ่" / "Head office" → '00000',
+ * "สาขาที่ 00012" / "Branch No. 12" → '00012'. Pass seller lines only: the buyer's branch is printed too.
+ */
+export function normalizeBranch(v: string): string {
+  const t = v.replace(/\s+/g, '');
+  if (/^\d{1,5}$/.test(t)) return t.padStart(5, '0');
+  const num = t.match(/(?:สาขา(?:ที่|เลขที่)?|branch(?:no\.?|number|code)?)[:：.#]*(\d{1,5})(?![\d-])/i);
+  if (num) return num[1].padStart(5, '0');
+  if (/(สำนักงานใหญ่|headoffice)/i.test(t)) return '00000';
+  return '';
+}
+
+function findBranch(lines: string[]): string {
+  for (const line of lines) {
+    const b = normalizeBranch(line.replace(/^\d{1,5}$/, ''));
+    if (b) return b;
+  }
+  return '';
+}
+
 export function parseReceipt(raw: string): ReceiptFields {
   const text = normalizeText(raw);
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -249,6 +272,7 @@ export function parseReceipt(raw: string): ReceiptFields {
   return {
     vendor_name,
     vendor_taxid,
+    vendor_branch: findBranch(sellerLines),
     vendor_address,
     invoice_number,
     date: parseDate(text),
@@ -267,6 +291,7 @@ export function validateFields(f: ReceiptFields): string[] {
   if (!thai) warnings.push(`Amounts are in ${f.currency}; an owner/admin enters the THB charged from the card statement later`);
   if (thai && f.vendor_taxid && !isValidThaiTaxId(f.vendor_taxid)) warnings.push('Tax ID checksum is invalid');
   if (thai && f.is_tax_invoice && !f.vendor_taxid) warnings.push('Tax invoice without a vendor tax ID');
+  if (thai && f.is_tax_invoice && f.vendor_taxid && !f.vendor_branch) warnings.push('Seller branch not found (สำนักงานใหญ่ or สาขาที่) — needed for the input VAT report');
   if (f.total === null) warnings.push('Total not found');
   if (!f.date) warnings.push('Date not found');
   // Thai VAT and tax IDs only apply to THB receipts.

@@ -1,185 +1,307 @@
-// Settings Page
+// Settings Page — the current property, server OCR status, account, appearance and data export
 window.SettingsPage = {
+    draft: null,      // { orgId, organization_name, color, categories } being edited
+    status: null,     // GET /system/status
+    statusError: null,
+
+    org() {
+        return (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+    },
+
+    canEdit() {
+        const org = this.org();
+        return !!org && ['owner', 'admin'].includes(org.role);
+    },
+
     render(companyId) {
+        const org = this.org();
+        if (!this.draft || this.draft.orgId !== companyId) {
+            this.draft = org ? {
+                orgId: companyId,
+                organization_name: org.organization_name,
+                color: orgColor(org),
+                categories: [...(org.categories || [])],
+            } : null;
+        }
+        if (!this.status) this.loadStatus();
+
         return `
       <div class="page-header">
         <div class="page-header-left">
           <h1>⚙️ Settings</h1>
-          <p>API keys, integrations, company management, and preferences</p>
-        </div>
-        <button class="btn btn-primary" onclick="SettingsPage.saveAll()">💾 Save All</button>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">🤖 AI & OCR</div>
-        <div class="settings-subtitle">API credentials for AI-powered receipt reading</div>
-        <div class="form-group">
-          <div class="form-label">OpenAI API Key</div>
-          <div class="form-input-group">
-            <input class="form-input api-key-input" type="password" id="openai_key" placeholder="sk-proj-..." value="sk-proj-••••••••••••••••">
-            <button class="btn btn-secondary btn-sm" onclick="SettingsPage.toggleKey('openai_key')">👁</button>
-            <button class="btn btn-green btn-sm" onclick="SettingsPage.testKey('OpenAI')">Test</button>
-          </div>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <div class="form-label">OCR Model</div>
-          <select class="form-select" style="width:auto;max-width:300px">
-            <option selected>gpt-4o (Vision)</option>
-            <option>gpt-4-turbo (Vision)</option>
-            <option>Google Cloud Vision API</option>
-          </select>
+          <p>Your property, its members, how receipts are read, and your account</p>
         </div>
       </div>
 
+      ${this.renderProperty()}
+
+      ${MembersSection.render(companyId)}
+
       <div class="settings-section">
-        <div class="settings-title">📧 Gmail / Email Scraper</div>
-        <div class="settings-subtitle">OAuth credentials for inbox scanning</div>
-        <div class="form-group">
-          <div class="form-label">Gmail OAuth Client ID</div>
-          <input class="form-input api-key-input" type="password" placeholder="xxxxxx.apps.googleusercontent.com" value="••••••••••••.apps.googleusercontent.com">
+        <div class="settings-title">🤖 Receipt reading (OCR)</div>
+        <div class="settings-subtitle">Configured on the server. API keys live in the server environment, never in the browser.</div>
+        <div id="ocrStatus">${this.renderStatus()}</div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">👤 Account</div>
+        <div class="settings-subtitle">Signed in to DocFlow AI</div>
+        <div class="settings-rows">
+          <div class="settings-row"><span>Name</span><strong>${esc(App.currentUser?.name || '—')}</strong></div>
+          <div class="settings-row"><span>Email</span><strong>${esc(App.currentUser?.email || '—')}</strong></div>
+          <div class="settings-row"><span>Role in ${esc(org?.organization_name || 'this property')}</span><strong style="text-transform:capitalize">${esc(org?.role || '—')}</strong></div>
         </div>
-        <div class="form-group">
-          <div class="form-label">Scan Frequency</div>
-          <select class="form-select" style="width:auto">
-            <option selected>Every 2 hours</option>
-            <option>Every 6 hours</option>
-            <option>Every 24 hours</option>
-            <option>Manual only</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <div class="form-label">Filter Keywords</div>
-          <input class="form-input" value="invoice, receipt, ใบเสร็จ, ใบกำกับ, order, payment" placeholder="Comma-separated keywords">
+        <details class="password-change" style="margin-top:16px">
+          <summary class="btn btn-secondary btn-sm" style="display:inline-flex">🔑 Change password</summary>
+          <form style="display:grid;gap:10px;max-width:360px;margin-top:12px" onsubmit="event.preventDefault();SettingsPage.changePassword()">
+            <input class="form-input" id="pwCurrent" type="password" placeholder="Current (or temporary) password" autocomplete="current-password" required>
+            <input class="form-input" id="pwNew" type="password" placeholder="New password, at least 8 characters" autocomplete="new-password" minlength="8" required>
+            <input class="form-input" id="pwConfirm" type="password" placeholder="Repeat new password" autocomplete="new-password" minlength="8" required>
+            <button class="btn btn-primary btn-sm" type="submit" id="pwBtn" style="justify-self:start">Save new password</button>
+          </form>
+        </details>
+        <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="App.handleLogout()">🚪 Sign out</button>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">🎨 Appearance</div>
+        <div class="settings-subtitle">Saved in this browser</div>
+        <div class="filter-chips" style="margin-bottom:0" role="radiogroup" aria-label="Theme">
+          ${[['dark', '🌙 Dark'], ['light', '☀️ Light']].map(([t, label]) => `
+            <button class="filter-chip ${App.currentTheme === t ? 'active' : ''}" role="radio" aria-checked="${App.currentTheme === t}"
+              onclick="SettingsPage.setTheme('${t}')">${label}</button>`).join('')}
         </div>
       </div>
 
       <div class="settings-section">
-        <div class="settings-title">💬 LINE Messaging API</div>
-        <div class="settings-subtitle">Channel credentials for LINE Bot receipt workflow</div>
-        <div class="form-group">
-          <div class="form-label">Channel Access Token</div>
-          <div class="form-input-group">
-            <input class="form-input api-key-input" type="password" id="line_token" placeholder="LINE Channel Access Token" value="••••••••••••••••••••••••">
-            <button class="btn btn-secondary btn-sm" onclick="SettingsPage.toggleKey('line_token')">👁</button>
-            <button class="btn btn-green btn-sm" onclick="SettingsPage.testKey('LINE')">Test</button>
-          </div>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <div class="form-label">Channel Secret</div>
-          <input class="form-input api-key-input" type="password" placeholder="LINE Channel Secret" value="••••••••••••••••">
-        </div>
+        <div class="settings-title">📤 Data</div>
+        <div class="settings-subtitle">Every record for ${esc(org?.organization_name || 'this property')}, including drafts and disabled ones, as a CSV that opens in Excel with Thai text intact</div>
+        <button class="btn btn-secondary btn-sm" id="exportBtn" onclick="SettingsPage.exportCsv()">⬇ Export CSV</button>
       </div>
 
       <div class="settings-section">
-        <div class="settings-title">📁 Google Drive & Sheets</div>
-        <div class="settings-subtitle">Service account credentials for Drive and Sheets access</div>
-        <div class="form-group">
-          <div class="form-label">Service Account JSON</div>
-          <div style="display:flex;gap:10px;align-items:flex-start">
-            <textarea class="form-input" rows="3" placeholder='{"type":"service_account","project_id":"..."}' style="flex:1;resize:none;font-family:monospace;font-size:0.78rem">{"type":"service_account","project_id":"docflow-ai","private_key":"[HIDDEN]",...}</textarea>
-            <button class="btn btn-green btn-sm" onclick="SettingsPage.testKey('Google')">Test</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <div class="form-label">Google Sheet ID</div>
-          <input class="form-input api-key-input" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" value="1BxiMVs0XRA5nFMdKvBdBZjg••••••••••••••">
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <div class="form-label">Root Drive Folder ID</div>
-          <input class="form-input api-key-input" placeholder="Google Drive Folder ID" value="1a2b3c4d5e••••••••••••">
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">🏢 Company Management</div>
-        <div class="settings-subtitle">Add, edit, or remove companies for multi-company tracking</div>
-        <div id="companyList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
-          ${MockData.companies.map(comp => `
-          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm)">
-            <div style="width:28px;height:28px;border-radius:8px;background:${comp.color};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:white">${comp.short}</div>
-            <input class="form-input" value="${comp.name}" style="flex:1">
-            <input type="color" value="${comp.color}" style="width:36px;height:36px;border:none;border-radius:6px;background:transparent;cursor:pointer" onchange="SettingsPage.updateColor('${comp.id}',this.value)">
-            <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="SettingsPage.removeCompany('${comp.id}')">🗑</button>
-          </div>`).join('')}
-        </div>
-        <button class="btn btn-secondary" onclick="SettingsPage.addCompany()">+ Add Company</button>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">🌐 Preferences</div>
-        <div class="settings-subtitle">Regional settings and display options</div>
-        <div class="grid-2">
-          <div class="form-group">
-            <div class="form-label">Default Currency</div>
-            <select class="form-select">
-              <option selected>THB (฿)</option>
-              <option>USD ($)</option>
-              <option>EUR (€)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <div class="form-label">Date Format</div>
-            <select class="form-select">
-              <option selected>YYYY-MM-DD</option>
-              <option>DD/MM/YYYY</option>
-              <option>MM/DD/YYYY</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <div class="form-label">Language</div>
-            <select class="form-select">
-              <option selected>English</option>
-              <option>ภาษาไทย</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <div class="form-label">VAT Rate</div>
-            <input class="form-input" value="7" type="number" min="0" max="100">
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-section" style="border-color:rgba(239,68,68,0.2)">
-        <div class="settings-title" style="color:var(--red)">⚠️ Danger Zone</div>
-        <div class="settings-subtitle">Irreversible actions — proceed with caution</div>
-        <div style="display:flex;gap:10px">
-          <button class="btn btn-secondary btn-sm" onclick="SheetsPage.export()">📤 Export All Data (CSV)</button>
-          <button class="btn btn-secondary btn-sm" style="border-color:rgba(239,68,68,0.4);color:var(--red)" onclick="SettingsPage.clearData()">🗑 Clear All Data</button>
+        <div class="settings-title">🔗 Integrations</div>
+        <div class="settings-subtitle">Planned for Phase 3, one at a time. Nothing to configure yet.</div>
+        <div class="settings-rows">
+          ${['💬 LINE bot — send a photo of a receipt to file it', '📧 Gmail — pick up e-Tax invoices from your inbox', '📁 Google Drive — file originals into folders', '🗂️ Google Sheets / Airtable — two-way sync']
+            .map(i => `<div class="settings-row"><span>${i}</span><span class="nav-soon">Soon</span></div>`).join('')}
         </div>
       </div>
     `;
     },
 
-    toggleKey(id) {
-        const el = document.getElementById(id);
-        if (el) el.type = el.type === 'password' ? 'text' : 'password';
+    renderProperty() {
+        const d = this.draft;
+        if (!d) return '';
+        const editable = this.canEdit();
+        const dis = editable ? '' : 'disabled';
+        return `
+      <div class="settings-section" style="border-left:3px solid ${d.color}">
+        <div class="settings-title">🏢 Property</div>
+        <div class="settings-subtitle">${editable
+            ? 'Name, colour and the categories offered when you review a receipt'
+            : 'Only an owner or admin can change these'}</div>
+
+        <div class="form-group">
+          <label class="form-label" for="propName">Name</label>
+          <input class="form-input" id="propName" value="${esc(d.organization_name)}" ${dis}
+            oninput="SettingsPage.draft.organization_name = this.value">
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Colour</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap" role="radiogroup" aria-label="Property colour">
+            ${ORG_COLORS.map(c => `
+              <button class="org-swatch-btn" role="radio" aria-checked="${c === d.color}" aria-label="${c}" ${dis}
+                style="background:${c};border-color:${c === d.color ? 'var(--text-primary)' : 'transparent'}"
+                onclick="SettingsPage.setColor('${c}')"></button>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <div class="form-label">Categories</div>
+          <div id="categoryChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${this.renderCategories()}</div>
+          ${editable ? `
+          <form style="display:flex;gap:8px;max-width:420px" onsubmit="event.preventDefault();SettingsPage.addCategory()">
+            <input class="form-input" id="newCategory" placeholder="Add a category, e.g. Utilities" maxlength="60">
+            <button class="btn btn-secondary btn-sm" type="submit" style="white-space:nowrap">+ Add</button>
+          </form>` : ''}
+        </div>
+
+        ${editable ? `
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button class="btn btn-primary btn-sm" id="savePropertyBtn" onclick="SettingsPage.saveProperty()">💾 Save property</button>
+          <button class="btn btn-ghost btn-sm" onclick="SettingsPage.resetDraft()">Undo changes</button>
+        </div>` : ''}
+      </div>`;
     },
 
-    testKey(service) {
-        App.showToast('info', `🔄 Testing ${service} connection...`);
-        setTimeout(() => App.showToast('success', `✅ ${service} API connected successfully!`), 1200);
-    },
-
-    saveAll() {
-        App.showToast('success', '💾 All settings saved successfully!');
-    },
-
-    addCompany() {
-        App.showToast('info', '+ Add company feature — use the modal in full version');
-    },
-
-    removeCompany(id) {
-        App.showToast('info', `🗑 Company ${id} removed (mock mode)`);
-    },
-
-    updateColor(id, color) {
-        const comp = MockData.companies.find(c => c.id === id);
-        if (comp) { comp.color = color; App.updateCompanyDot(); }
-    },
-
-    clearData() {
-        if (confirm('⚠️ Clear all expense data? This cannot be undone.')) {
-            App.showToast('info', 'Data cleared (mock mode — no real data was deleted)');
+    renderCategories() {
+        const d = this.draft;
+        if (!d.categories.length) {
+            return '<span style="font-size:0.8rem;color:var(--text-muted)">No categories yet: the default list is used.</span>';
         }
-    }
+        const editable = this.canEdit();
+        return d.categories.map((c, i) => `
+          <span class="badge badge-info" style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;padding:4px 10px">
+            ${esc(c)}
+            ${editable ? `<button onclick="SettingsPage.removeCategory(${i})" aria-label="Remove ${esc(c)}"
+              style="background:none;border:none;color:inherit;cursor:pointer;font-size:0.9rem;line-height:1">×</button>` : ''}
+          </span>`).join('');
+    },
+
+    renderStatus() {
+        if (this.statusError) {
+            return `<div style="font-size:0.85rem;color:var(--red)">⚠️ Couldn't load server status: ${esc(this.statusError)}
+              <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="SettingsPage.loadStatus(true)">↻ Retry</button></div>`;
+        }
+        if (!this.status) return '<div class="skeleton" style="height:96px"></div>';
+
+        const { ocr, max_upload_mb } = this.status;
+        const names = { typhoon: 'Typhoon OCR', claude: 'Claude', tesseract: 'Tesseract (offline)' };
+        const mode = ocr.setting === 'auto' ? 'Automatic: Typhoon, then Claude, then Tesseract' : `Fixed to ${names[ocr.setting] || ocr.setting}`;
+        const row = (key, note) => {
+            const on = ocr.engines[key];
+            return `<div class="settings-row">
+              <span>${names[key]} <span style="color:var(--text-muted);font-size:0.75rem">${note}</span></span>
+              <span class="badge ${on ? 'badge-confirmed' : 'badge-draft'}">${on ? (ocr.active === key ? '● In use' : 'Configured') : 'Not set up'}</span>
+            </div>`;
+        };
+        return `
+        <div class="settings-rows">
+          <div class="settings-row"><span>Engine in use</span><strong>${esc(names[ocr.active] || ocr.active)}</strong></div>
+          <div class="settings-row"><span>Mode</span><span>${esc(mode)}</span></div>
+          ${row('typhoon', 'best for Thai receipts')}
+          ${row('claude', 'optional')}
+          ${row('tesseract', 'always available fallback')}
+          <div class="settings-row"><span>Max upload size</span><span>${Number(max_upload_mb)} MB</span></div>
+        </div>
+        ${!ocr.engines.typhoon ? `<p style="font-size:0.78rem;color:var(--amber);margin-top:12px">
+          Typhoon isn't set up, so Thai receipts are read with the less accurate offline engine.
+          Set <code>TYPHOON_OCR_API_KEY</code> on the API project in Vercel to enable it.</p>` : ''}`;
+    },
+
+    async loadStatus(force = false) {
+        if (this.loadingStatus && !force) return;
+        this.loadingStatus = true;
+        this.statusError = null;
+        try {
+            this.status = await SystemApi.status();
+        } catch (error) {
+            this.statusError = error.message;
+        } finally {
+            this.loadingStatus = false;
+            const el = document.getElementById('ocrStatus');
+            if (el) el.innerHTML = this.renderStatus();
+        }
+    },
+
+    refreshProperty() {
+        if (App.currentPage !== 'settings') return;
+        const content = document.getElementById('mainContent');
+        if (content) content.innerHTML = this.render(App.currentCompany);
+    },
+
+    setColor(color) {
+        this.draft.color = color;
+        this.refreshProperty();
+    },
+
+    addCategory() {
+        const input = document.getElementById('newCategory');
+        const name = (input?.value || '').trim();
+        if (!name) return;
+        if (this.draft.categories.some(c => c.toLowerCase() === name.toLowerCase())) {
+            App.showToast('info', `"${name}" is already in the list`);
+            return;
+        }
+        this.draft.categories.push(name);
+        input.value = '';
+        document.getElementById('categoryChips').innerHTML = this.renderCategories();
+        input.focus();
+    },
+
+    removeCategory(i) {
+        this.draft.categories.splice(i, 1);
+        document.getElementById('categoryChips').innerHTML = this.renderCategories();
+    },
+
+    resetDraft() {
+        this.draft = null;
+        this.refreshProperty();
+    },
+
+    async saveProperty() {
+        const d = this.draft;
+        if (!d.organization_name.trim()) {
+            App.showToast('error', 'The property needs a name');
+            return;
+        }
+        const btn = document.getElementById('savePropertyBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+        try {
+            await OrganizationApi.update(d.orgId, {
+                organization_name: d.organization_name,
+                color: d.color,
+                categories: d.categories,
+            });
+            await App.refreshOrganizations();
+            this.draft = null;
+            App.showToast('success', '✅ Property saved');
+            this.refreshProperty();
+        } catch (error) {
+            App.showToast('error', '❌ ' + error.message, 4000);
+            if (btn) { btn.disabled = false; btn.textContent = '💾 Save property'; }
+        }
+    },
+
+    async changePassword() {
+        const current = document.getElementById('pwCurrent').value;
+        const next = document.getElementById('pwNew').value;
+        if (next !== document.getElementById('pwConfirm').value) {
+            App.showToast('error', 'The new passwords do not match', 4000);
+            return;
+        }
+        const btn = document.getElementById('pwBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+        try {
+            await AuthApi.changePassword(current, next);
+            App.showToast('success', '🔑 Password changed');
+            ['pwCurrent', 'pwNew', 'pwConfirm'].forEach(id => { document.getElementById(id).value = ''; });
+            document.querySelector('.password-change')?.removeAttribute('open');
+        } catch (error) {
+            App.showToast('error', '❌ ' + error.message, 4000);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Save new password'; }
+        }
+    },
+
+    setTheme(theme) {
+        if (App.currentTheme !== theme) App.toggleTheme();
+        this.refreshProperty();
+    },
+
+    async exportCsv() {
+        const btn = document.getElementById('exportBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing...'; }
+        try {
+            const rows = await ExpenseApi.listExpenses(App.currentCompany);
+            const cols = [
+                ['Date', 'date'], ['Vendor', 'vendor_name'], ['Vendor tax ID', 'vendor_taxid'], ['Branch', 'vendor_branch'], ['Invoice no.', 'invoice_number'],
+                ['Category', 'category'], ['Subtotal', 'subtotal'], ['VAT', 'tax_amount'], ['Total', 'total'],
+                ['Currency', 'currency'], ['Status', 'status'], ['Notes', 'notes'], ['Has original file', 'receipt_id'],
+            ];
+            const NUMERIC = ['subtotal', 'tax_amount', 'total'];
+            const value = (r, k) => k === 'receipt_id' ? (r.receipt_id ? 'yes' : 'no') : k === 'date' ? String(r.date || '').slice(0, 10) : r[k];
+            downloadCsv(`${this.org()?.organization_name || 'docflow'}_expenses_${new Date().toISOString().slice(0, 10)}.csv`, [
+                cols.map(c => csvCell(c[0])),
+                ...rows.map(r => cols.map(([, k]) => csvCell(value(r, k), { taxId: k === 'vendor_taxid', numeric: NUMERIC.includes(k) }))),
+            ]);
+            App.showToast('success', `⬇ Exported ${rows.length} record${rows.length === 1 ? '' : 's'}`);
+        } catch (error) {
+            App.showToast('error', '❌ Export failed: ' + error.message, 4000);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '⬇ Export CSV'; }
+        }
+    },
 };

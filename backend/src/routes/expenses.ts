@@ -2,11 +2,12 @@ import { Router } from 'express';
 import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
+import { normalizeBranch } from '../extract/parse.js';
 
 const STATUSES = ['draft', 'confirmed', 'approved', 'disabled'];
 const APPROVERS = ['owner', 'admin'];
 const EDITABLE = [
-  'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'date',
+  'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'vendor_branch', 'date',
   'total', 'subtotal', 'tax_amount', 'currency', 'category', 'notes', 'invoice_number', 'receipt_id',
   'fx_rate', 'total_thb', 'fx_rate_date', 'fx_source',
 ] as const;
@@ -54,6 +55,11 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
       const d = new Date(String(v));
       if (isNaN(d.getTime())) return `${key} is invalid`;
       out[key] = key === 'date' ? d.toISOString() : d.toISOString().slice(0, 10);
+    } else if (key === 'vendor_branch') {
+      const raw = v == null ? '' : String(v).trim();
+      const b = normalizeBranch(raw);
+      if (raw && !b) return 'vendor_branch must be a branch number (e.g. 00012) or head office (00000)';
+      out.vendor_branch = b;
     } else if (key === 'status') {
       if (!STATUSES.includes(String(v))) return `status must be one of ${STATUSES.join(', ')}`;
       out.status = String(v);
@@ -170,8 +176,13 @@ export function expensesRouter(db: Db): Router {
     const orgId = req.query.organization_id;
     if (typeof orgId === 'string' && orgId) {
       if (!(await membershipRole(db, req.user!.id, orgId))) return res.status(403).json({ detail: 'Not a member of this organization' });
+      // ?sort=updated lists the most recently changed first (activity feeds); ?limit caps the rows
+      const order = req.query.sort === 'updated' ? 'updated_at DESC' : 'date DESC NULLS LAST, created_at DESC';
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? ''), 10) || 0, 0), 500);
       const rows = await all<ExpenseRow>(
-        db, 'SELECT * FROM expenses WHERE organization_id = $1 ORDER BY date DESC NULLS LAST, created_at DESC', [orgId],
+        db,
+        `SELECT * FROM expenses WHERE organization_id = $1 ORDER BY ${order}${limit ? ` LIMIT ${limit}` : ''}`,
+        [orgId],
       );
       return res.json(rows.map(toApi));
     }

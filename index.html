@@ -8,82 +8,77 @@
     <meta name="description"
         content="AI-powered receipt reader, email scraper, LINE chatbot, Google Drive & Sheets integration for multi-company expense management.">
     <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
 
     <div class="app-layout">
         <!-- ─── Sidebar ─── -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-logo">
                 <div class="sidebar-logo-icon">📂</div>
                 <div class="sidebar-logo-text">Doc<span>Flow</span> AI</div>
             </div>
 
-            <div class="sidebar-section-label">Main</div>
-            <div class="nav-item active" data-page="dashboard" onclick="App.navigate('dashboard')">
-                <span class="nav-icon">📊</span> Dashboard
-            </div>
+            <nav class="sidebar-nav" aria-label="Main">
+                <div class="sidebar-section-label">Workspace</div>
+                <button class="nav-item active" data-page="dashboard" onclick="App.navigate('dashboard')">
+                    <span class="nav-icon">📊</span> Dashboard
+                </button>
+                <button class="nav-item" data-page="receipts" onclick="App.navigate('receipts')">
+                    <span class="nav-icon">🧾</span> Receipts
+                    <span class="nav-badge" id="receiptsBadge" style="display:none">0</span>
+                </button>
+                <button class="nav-item" data-page="reports" onclick="App.navigate('reports')">
+                    <span class="nav-icon">📈</span> Reports
+                </button>
 
-            <div class="sidebar-section-label">Ingestion</div>
-            <div class="nav-item" data-page="receipts" onclick="App.navigate('receipts')">
-                <span class="nav-icon">🔍</span> OCR Receipt Reader
-                <span class="nav-badge" id="receiptsBadge" style="display:none">2</span>
-            </div>
-            <div class="nav-item" data-page="email" onclick="App.navigate('email')">
-                <span class="nav-icon">📧</span> Email Scraper
-            </div>
-            <div class="nav-item" data-page="line" onclick="App.navigate('line')">
-                <span class="nav-icon">💬</span> LINE Chatbot
-            </div>
-
-            <div class="sidebar-section-label">Storage</div>
-            <div class="nav-item" data-page="drive" onclick="App.navigate('drive')">
-                <span class="nav-icon">📁</span> Google Drive
-            </div>
-            <div class="nav-item" data-page="sheets" onclick="App.navigate('sheets')">
-                <span class="nav-icon">📊</span> Google Sheets
-            </div>
-
-            <div class="sidebar-section-label">Insights</div>
-            <div class="nav-item" data-page="reports" onclick="App.navigate('reports')">
-                <span class="nav-icon">📈</span> Reports
-            </div>
+                <div class="sidebar-section-label">Coming soon</div>
+                <button class="nav-item nav-item-soon" data-page="email" onclick="App.navigate('email')">
+                    <span class="nav-icon">📧</span> Email intake <span class="nav-soon">Soon</span>
+                </button>
+                <button class="nav-item nav-item-soon" data-page="line" onclick="App.navigate('line')">
+                    <span class="nav-icon">💬</span> LINE bot <span class="nav-soon">Soon</span>
+                </button>
+                <button class="nav-item nav-item-soon" data-page="drive" onclick="App.navigate('drive')">
+                    <span class="nav-icon">📁</span> Google Drive <span class="nav-soon">Soon</span>
+                </button>
+                <button class="nav-item nav-item-soon" data-page="sheets" onclick="App.navigate('sheets')">
+                    <span class="nav-icon">🗂️</span> Google Sheets <span class="nav-soon">Soon</span>
+                </button>
+            </nav>
 
             <div class="sidebar-bottom">
-                <div class="nav-item" data-page="settings" onclick="App.navigate('settings')">
+                <button class="nav-item" data-page="settings" onclick="App.navigate('settings')">
                     <span class="nav-icon">⚙️</span> Settings
-                </div>
-                <div style="padding:12px 10px 0;font-size:0.72rem;color:var(--text-muted);text-align:center">
-                    DocFlow AI v1.0 · Feb 2026
-                </div>
+                </button>
             </div>
         </aside>
 
         <!-- ─── Topbar ─── -->
         <header class="topbar">
-            <div class="topbar-title" id="topbarTitle">Dashboard <span>/ Overview</span></div>
+            <button class="btn btn-secondary btn-icon menu-toggle" onclick="App.toggleSidebar()" aria-label="Open menu"
+                aria-controls="sidebar" aria-expanded="false" id="menuToggle">☰</button>
 
-            <div class="company-switcher">
-                <div class="company-dot" id="companyDot"></div>
-                <select id="companySwitcher"></select>
-            </div>
+            <div class="topbar-title" id="topbarTitle">Dashboard</div>
 
-            <div class="sync-badge">
-                <div class="sync-dot"></div>
-                Live Sync
-            </div>
+            <label class="company-switcher" title="Records are saved to this property">
+                <span class="company-switcher-label">Property</span>
+                <span class="company-dot" id="companyDot"></span>
+                <select id="companySwitcher" aria-label="Current property"></select>
+            </label>
 
             <div id="userPanel" style="display:flex;align-items:center;position:relative">
                 <!-- User panel injected by app.js -->
             </div>
 
-            <button class="btn btn-secondary btn-icon" id="themeToggle" onclick="App.toggleTheme()" title="Toggle Theme"
+            <button class="btn btn-secondary btn-icon" id="themeToggle" onclick="App.toggleTheme()" title="Toggle theme" aria-label="Toggle theme"
                 style="font-size: 1.1rem; padding: 6px 10px;">
                 <span id="themeIcon">🌙</span>
             </button>
         </header>
+
+        <div class="sidebar-backdrop" onclick="App.toggleSidebar(false)"></div>
 
         <!-- ─── Main Content ─── -->
         <main class="main-content" id="mainContent" style="transition:opacity 0.15s ease">
@@ -96,7 +91,7 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ─── Background gradient ─── -->
-    <div style="position:fixed;inset:0;pointer-events:none;z-index:-1;
+    <div class="app-bg" style="position:fixed;inset:0;pointer-events:none;z-index:-1;
   background: radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,0.08) 0%, transparent 60%),
               radial-gradient(ellipse 60% 50% at 80% 80%, rgba(16,185,129,0.05) 0%, transparent 60%),
               var(--bg-base)">
@@ -109,7 +104,9 @@
     <script src="services/expenses.js"></script>
     <script src="services/organizations.js"></script>
     <script src="services/receipts.js"></script>
+    <script src="services/reports.js"></script>
     <script src="pages/login.js"></script>
+    <script src="pages/set-password.js"></script>
     <script src="pages/select-organization.js"></script>
     <script src="pages/dashboard.js"></script>
     <script src="pages/receipts.js"></script>
@@ -118,6 +115,7 @@
     <script src="pages/drive.js"></script>
     <script src="pages/sheets.js"></script>
     <script src="pages/reports.js"></script>
+    <script src="pages/members.js"></script>
     <script src="pages/settings.js"></script>
     <script src="app.js"></script>
 

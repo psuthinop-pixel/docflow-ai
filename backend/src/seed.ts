@@ -13,7 +13,8 @@ const db = await openDb(config.databaseUrl);
 const hash = bcrypt.hashSync(password, 10);
 await db.query(
   `INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)
-   ON CONFLICT (email) DO UPDATE SET password_hash = excluded.password_hash, name = excluded.name`,
+   ON CONFLICT (email) DO UPDATE SET password_hash = excluded.password_hash, name = excluded.name,
+     must_change_password = false, temp_password_expires_at = NULL, password_changed_at = excluded.created_at`,
   [newId(), email.trim().toLowerCase(), name, hash, now()],
 );
 console.log(`User ${email} ready.`);

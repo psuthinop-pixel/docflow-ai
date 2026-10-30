@@ -6,21 +6,21 @@ window.ReceiptsPage = {
   ocrResult: null,
   expenses: [],
   loading: false,
-  fxOnly: false,
+  statusFilter: 'all',
   fxEdited: null, // 'total_thb' or 'fx_rate': whichever FX input the owner typed in last
   currencies: ['THB', 'USD', 'EUR', 'GBP', 'SGD', 'HKD', 'JPY', 'CNY', 'AUD'],
 
   render(companyId) {
-    if (!this.initialized || this.lastCompanyId !== companyId) {
-      this.initialized = true;
-      this.lastCompanyId = companyId;
-      this.loadExpenses(companyId);
-    }
+    // Refetch on every visit so approvals and uploads made elsewhere show up;
+    // keep the current rows on screen while the same property reloads
+    if (this.lastCompanyId !== companyId) this.expenses = [];
+    this.lastCompanyId = companyId;
+    this.loadExpenses(companyId);
 
     return `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>🔍 AI OCR Receipt Reader</h1>
+          <h1>🔍 Receipts</h1>
           <p>Upload a receipt image or PDF — fields are extracted on the server for you to review</p>
         </div>
       </div>
@@ -81,13 +81,10 @@ window.ReceiptsPage = {
         <div class="card-header">
           <div>
             <div class="card-title">💳 Processed Receipts</div>
-            <div class="card-subtitle">${this.expenses.length} receipts uploaded</div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-${this.fxOnly ? 'primary' : 'ghost'} btn-sm" id="fxFilterBtn" onclick="ReceiptsPage.toggleFxFilter()">${this.fxFilterLabel()}</button>
-            <button class="btn btn-ghost btn-sm" onclick="Pages.sheets()">View All →</button>
+            <div class="card-subtitle" id="expensesSubtitle">${this.recordCount()}</div>
           </div>
         </div>
+        <div class="filter-chips" id="statusFilterChips">${this.renderFilterChips()}</div>
         <div id="expensesTableContainer">
             ${this.renderExpensesTable()}
         </div>
@@ -95,14 +92,54 @@ window.ReceiptsPage = {
     `;
   },
 
+  renderFilterChips() {
+    const filters = [
+      ['all', 'All'], ['draft', 'Drafts'], ['confirmed', 'Awaiting approval'], ['approved', 'Approved'], ['disabled', 'Disabled'],
+      ['fx', '💱 Needs THB amount'],
+    ];
+    return filters.map(([key, label]) => {
+      const count = key === 'all' ? this.expenses.length
+        : key === 'fx' ? this.expenses.filter(e => Money.fxPending(e)).length
+        : this.expenses.filter(e => e.status === key).length;
+      if (key === 'fx' && !count && this.statusFilter !== 'fx') return '';
+      return `<button class="filter-chip ${this.statusFilter === key ? 'active' : ''}" onclick="ReceiptsPage.setFilter('${key}')">${label} · ${count}</button>`;
+    }).join('');
+  },
+
+  recordCount() {
+    const n = this.expenses.length;
+    return `${n} record${n === 1 ? '' : 's'}`;
+  },
+
+  setFilter(status) {
+    this.statusFilter = status;
+    this.refreshList();
+  },
+
+  refreshList() {
+    const container = document.getElementById('expensesTableContainer');
+    if (container) container.innerHTML = this.renderExpensesTable();
+    const chips = document.getElementById('statusFilterChips');
+    if (chips) chips.innerHTML = this.renderFilterChips();
+    const subtitle = document.getElementById('expensesSubtitle');
+    if (subtitle) subtitle.textContent = this.recordCount();
+  },
+
   renderExpensesTable() {
-    if (this.loading) return '<div style="padding:20px;text-align:center">Loading expenses...</div>';
-    if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts found.</div>';
-    const rows = this.expenses.map((e, idx) => ({ e, idx })).filter(({ e }) => !this.fxOnly || Money.fxPending(e));
-    if (rows.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts waiting for an exchange rate.</div>';
+    if (this.loading && this.expenses.length === 0) {
+      return [1, 2, 3].map(() => '<div class="skeleton" style="height:40px;margin-bottom:10px"></div>').join('');
+    }
+    if (this.loadError) return `<div style="padding:20px;text-align:center;color:var(--red)">⚠️ Couldn't load expenses: ${esc(this.loadError)} <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="ReceiptsPage.loadExpenses(App.currentCompany)">↻ Retry</button></div>`;
+    if (this.expenses.length === 0) return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No receipts yet — upload one above.</div>';
+
+    // Keep each record's index into this.expenses: the row actions look it up by index
+    const rows = this.expenses
+      .map((e, idx) => ({ e, idx }))
+      .filter(({ e }) => this.statusFilter === 'all' || (this.statusFilter === 'fx' ? Money.fxPending(e) : e.status === this.statusFilter));
+    if (rows.length === 0) return `<div style="padding:20px;text-align:center;color:var(--text-secondary)">${this.statusFilter === 'fx' ? 'No receipts waiting for an exchange rate.' : 'Nothing here — no records with this status.'}</div>`;
 
     return `
-        <table class="data-table">
+        <div class="table-scroll"><table class="data-table">
           <thead><tr>
             <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
@@ -112,17 +149,17 @@ window.ReceiptsPage = {
               return `
             <tr>
               <td>${esc(e.vendor_name)}${e.invoice_number ? `<div style="font-size:0.72rem;color:var(--text-secondary)">#${esc(e.invoice_number)}</div>` : ''}</td>
-              <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
+              <td>${fmtDate(e.date)}</td>
               <td style="font-weight:700">${Money.cell(e)}</td>
               <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : ''}</td>
               <td>
                 ${Money.isForeign(e)
                   ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${hasTax ? `${Money.format(e.tax_amount, e.currency)} tax` : 'Foreign'}</span>`
                   : hasTax
-                  ? `<span style="font-size:0.8rem;color:var(--green)">฿${parseFloat(e.tax_amount).toLocaleString()} VAT</span>` 
+                  ? `<span style="font-size:0.8rem;color:var(--green)">${fmtTHB(e.tax_amount)} VAT</span>` 
                   : `<span class="badge badge-error" style="background:rgba(239, 68, 68, 0.1);color:rgb(239, 68, 68);border:1px solid rgba(239, 68, 68, 0.2)">⚠️ No Tax</span>`}
               </td>
-              <td><span class="badge badge-${e.status}">${e.status}</span></td>
+              <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
               <td style="text-align:right">
                 ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')">📎</button>` : ''}
                 ${this.canApprove() && e.status === 'confirmed' && !Money.fxPending(e) ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
@@ -131,37 +168,24 @@ window.ReceiptsPage = {
             </tr>`;
             }).join('')}
           </tbody>
-        </table>
+        </table></div>
     `;
   },
 
   async loadExpenses(companyId) {
     this.loading = true;
+    this.loadError = null;
+    this.refreshList();
     try {
       this.expenses = await window.ExpenseApi.listExpenses(companyId);
-      const container = document.getElementById('expensesTableContainer');
-      if (container) container.innerHTML = this.renderExpensesTable();
+      App.setDraftCount(this.expenses);
     } catch (error) {
       console.error('Failed to load expenses:', error);
+      this.loadError = error.message || 'Unknown error';
     } finally {
       this.loading = false;
-      const container = document.getElementById('expensesTableContainer');
-      if (container) container.innerHTML = this.renderExpensesTable();
-      const btn = document.getElementById('fxFilterBtn');
-      if (btn) btn.textContent = this.fxFilterLabel();
+      this.refreshList();
     }
-  },
-
-  fxFilterLabel() {
-    return `💱 Needs FX rate (${this.expenses.filter(e => Money.fxPending(e)).length})`;
-  },
-
-  toggleFxFilter() {
-    this.fxOnly = !this.fxOnly;
-    const btn = document.getElementById('fxFilterBtn');
-    if (btn) btn.className = `btn btn-${this.fxOnly ? 'primary' : 'ghost'} btn-sm`;
-    const container = document.getElementById('expensesTableContainer');
-    if (container) container.innerHTML = this.renderExpensesTable();
   },
 
   categories() {
@@ -181,7 +205,7 @@ window.ReceiptsPage = {
     const field = (name, label, value, attrs = '') =>
       `<div class="ocr-field"><div class="ocr-field-label">${label}</div><input class="ocr-field-input" data-field="${name}" value="${esc(value)}" ${attrs}></div>`;
     const cats = this.categories();
-    const engine = r.engine === 'claude' ? 'Claude' : 'Tesseract (Thai + English)';
+    const engine = { claude: 'Claude', typhoon: 'Typhoon OCR', tesseract: 'Tesseract (Thai + English)' }[r.engine] || r.engine || 'OCR';
     return `
     <div class="ocr-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
@@ -208,6 +232,7 @@ window.ReceiptsPage = {
       </div>` : ''}
       ${field('vendor_name', '🏪 Vendor / Store', r.vendor_name)}
       ${field('vendor_taxid', '🆔 Vendor Tax ID', r.vendor_taxid, 'inputmode="numeric" maxlength="13" placeholder="13 digits"')}
+      ${field('vendor_branch', '🏢 Head office / branch', r.vendor_branch || '', 'placeholder="00000 = head office, 00012 = สาขาที่ 12" title="As printed on the tax invoice: สำนักงานใหญ่ (00000) or สาขาที่ and its number"')}
       ${field('invoice_number', '🔢 Invoice / Receipt No.', r.invoice_number)}
       ${field('date', '📅 Date', r.date || '', 'type="date"')}
       <div class="ocr-field">
@@ -460,7 +485,6 @@ window.ReceiptsPage = {
       this.ocrDone = false;
       this.ocrResult = null;
       this.currentFile = null;
-      this.initialized = false; // Trigger reload
       App.navigate('receipts');
     } catch (error) {
       if (error.status === 409 && !allowDuplicate) {
@@ -480,7 +504,3 @@ window.ReceiptsPage = {
     App.navigate('receipts');
   }
 };
-
-function esc(v) {
-  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}

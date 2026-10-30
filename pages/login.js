@@ -64,8 +64,9 @@ window.LoginPage = {
         const user = await AuthApi.getMe();
         window.App.currentUser = user;
 
-        // Redirect to selection page (guard will handle if already selected)
-        setTimeout(() => App.navigate('select-organization'), 100);
+        // Invited accounts set their own password first; the guard in App.navigate enforces it
+        if (!user.must_change_password) App.organizations = await OrganizationApi.list();
+        setTimeout(() => App.navigate(user.must_change_password ? 'set-password' : 'select-organization'), 100);
       }
     } catch (error) {
       console.error('Login error:', error);
