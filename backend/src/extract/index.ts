@@ -21,7 +21,18 @@ export function pickEngine(setting: string): Engine {
   return claudeEnabled() ? 'claude' : 'tesseract';
 }
 
+// PDF text layers can carry NUL bytes, which Postgres rejects in text and JSON values.
+const stripNul = (s: string) => s.replace(/\u0000/g, '');
+
 export async function extractReceipt(buf: Buffer, mime: string, categories: string[], setting = 'auto'): Promise<Extraction> {
+  const x = await extract(buf, mime, categories, setting);
+  const fields = Object.fromEntries(
+    Object.entries(x.fields).map(([k, v]) => [k, typeof v === 'string' ? stripNul(v) : v]),
+  ) as Extraction['fields'];
+  return { ...x, text: stripNul(x.text), fields };
+}
+
+async function extract(buf: Buffer, mime: string, categories: string[], setting: string): Promise<Extraction> {
   let engine = pickEngine(setting);
   if (engine === 'claude') {
     const c = await extractWithClaude(buf, mime, categories);
@@ -33,6 +44,7 @@ export async function extractReceipt(buf: Buffer, mime: string, categories: stri
       vendor_taxid: isValidThaiTaxId(taxid) || !isValidThaiTaxId(rules.vendor_taxid) ? taxid : rules.vendor_taxid,
       vendor_branch: normalizeBranch(c.vendor_branch || '') || rules.vendor_branch,
       category: categories.includes(c.category) ? c.category : '',
+      currency: /^[A-Za-z]{3}$/.test(c.currency.trim()) ? c.currency.trim().toUpperCase() : rules.currency,
     };
     const { raw_text: _t, ...clean } = fields;
     return { engine, confidence: null, text: c.raw_text, fields: clean, warnings: validateFields(clean) };

@@ -49,6 +49,8 @@ The API's serverless entry is `api/index.ts`; `vercel.json` sends every path to 
 Expense `status`: `draft` → `confirmed` → `approved` (owner/admin), or `disabled`.
 `POST /expenses` returns **409** with `duplicates` when the same receipt file or seller tax ID + invoice number already exists; resend with `allow_duplicate: true` to save anyway.
 
+**Foreign-currency receipts.** `total`, `subtotal` and `tax_amount` stay in the receipt's `currency`; reports add up `total_thb`. THB rows convert at 1. Other currencies keep `total_thb` null ("FX pending") until an owner/admin sends `total_thb` (THB charged on the card statement; the rate is derived) or `fx_rate`, plus optional `fx_rate_date` and `fx_source` (default `card_statement`). Members get **403** for any FX field; approving while `total_thb` is null returns **400**.
+
 Errors are returned as `{ "detail": "..." }`.
 
 ## Receipt extraction

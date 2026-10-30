@@ -45,6 +45,10 @@ export async function ocrImage(buf: Buffer): Promise<OcrText> {
 /** Text layer of a PDF, reconstructed line by line. Empty for scanned PDFs. */
 export async function pdfText(buf: Buffer, maxPages = 3): Promise<string> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // Preload the worker under a literal path so serverless bundlers (Vercel's file tracing) ship it;
+  // pdfjs otherwise resolves it at runtime and fails with "Setting up fake worker failed".
+  // @ts-expect-error -- pdfjs-dist ships no types for the worker entry.
+  (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker ??= await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
   const task = pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true });
   const doc = await task.promise;
   const out: string[] = [];

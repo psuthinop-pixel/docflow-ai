@@ -23,8 +23,11 @@ window.SheetsPage = {
             return this.sortDir === 'desc' ? -v : v;
         });
 
-        const total = expenses.reduce((s, e) => s + (parseFloat(e.total) || 0), 0);
-        const totalTax = total * 0.07; // Approximate VAT if not in API
+        // THB only: foreign-currency expenses count once their card-statement amount is entered.
+        const total = expenses.reduce((s, e) => s + (Money.thb(e) || 0), 0);
+        const fxPending = expenses.filter(e => Money.fxPending(e));
+        // Real VAT in THB; foreign receipts count once their THB amount is known
+        const totalTax = expenses.reduce((s, e) => s + (Money.isForeign(e) ? Number(e.tax_amount_thb || 0) : parseFloat(e.tax_amount) || 0), 0);
 
         return `
       <div class="page-header">
@@ -43,11 +46,13 @@ window.SheetsPage = {
           <div class="kpi-icon">💰</div>
           <div class="kpi-label">Total Amount</div>
           <div class="kpi-value" style="font-size:1.5rem">${fmtTHB(total)}</div>
-          <div class="kpi-change up">All selected records</div>
+          ${fxPending.length
+            ? `<div class="kpi-change" style="color:var(--amber)">Excludes ${fxPending.length} pending FX: ${Money.pendingSummary(fxPending)}</div>`
+            : '<div class="kpi-change up">All selected records</div>'}
         </div>
         <div class="kpi-card" style="--kpi-color:var(--amber);--kpi-bg:var(--amber-soft)">
           <div class="kpi-icon">🧾</div>
-          <div class="kpi-label">Total Tax (VAT 7%)</div>
+          <div class="kpi-label">Total VAT</div>
           <div class="kpi-value" style="font-size:1.5rem">${fmtTHB(totalTax)}</div>
         </div>
         <div class="kpi-card" style="--kpi-color:var(--green);--kpi-bg:var(--green-soft)">
@@ -87,7 +92,7 @@ window.SheetsPage = {
         </div>
         ${total === 0 ? '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No data to display.</div>' : Object.entries(
             expenses.reduce((acc, e) => { 
-                const amt = parseFloat(e.total) || 0;
+                const amt = Money.thb(e) || 0;
                 acc[e.category] = (acc[e.category] || 0) + amt; 
                 return acc; 
             }, {})
@@ -124,10 +129,10 @@ window.SheetsPage = {
             return `<tr>
                   <td>${esc(e.vendor_name)}</td>
                   <td>${fmtDate(e.date)}</td>
-                  <td style="font-weight:800;color:var(--text-primary)">${fmtTHB(e.total)}</td>
+                  <td style="font-weight:800;color:var(--text-primary)">${Money.cell(e)}</td>
                   <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : '—'}</td>
                   <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
-                  <td style="color:var(--text-secondary)">${parseFloat(e.tax_amount) > 0 ? fmtTHB(e.tax_amount) : '—'}</td>
+                  <td style="color:var(--text-secondary)">${parseFloat(e.tax_amount) > 0 ? (Money.isForeign(e) ? Money.format(e.tax_amount, e.currency) : fmtTHB(e.tax_amount)) : '—'}</td>
                 </tr>`;
         }).join('')}
             </tbody>

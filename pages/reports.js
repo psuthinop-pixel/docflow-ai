@@ -97,6 +97,7 @@ window.ReportsPage = {
             change: prevSpend > 0 ? ((spend - prevSpend) / prevSpend) * 100 : null,
             perMonth: spend / d.range.months,
             records: sum(d.by_month, 'count'),
+            fxNote: fxPendingNote(d.fx_pending),
             vat: sum(d.by_month, 'vat_claimable'),
             missingTaxId: gap('missing_tax_id'),
             notReviewed: gap('not_reviewed'),
@@ -170,6 +171,7 @@ window.ReportsPage = {
             changeNote = `${up ? '↑' : '↓'} ${Math.abs(s.change).toFixed(0)}% vs previous ${this.data.range.months === 1 ? 'month' : `${this.data.range.months} months`}`;
             changeColor = up ? 'var(--red)' : 'var(--green)';
         }
+        if (s.fxNote) { changeNote = s.fxNote; changeColor = 'var(--amber)'; }
         const gapVat = s.missingTaxId.vat + s.notReviewed.vat;
 
         return header + filters + `

@@ -244,6 +244,8 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   await add(o1._id, { status: 'draft', vendor_name: 'Draft', date: '2026-10-02', total: 214, tax_amount: 14, vendor_taxid: TAX, category: '' });
   await add(o1._id, { status: 'disabled', vendor_name: 'Ignored', date: '2026-09-05', total: 9999, tax_amount: 9 });
   await add(o2._id, { status: 'approved', vendor_name: 'HomePro', date: '2026-10-15', total: 2140, tax_amount: 140, vendor_taxid: TAX, category: 'Repairs' });
+  // Foreign currency: left out of spend until its THB amount is entered; never Thai input VAT
+  const usd = (await add(o1._id, { status: 'confirmed', vendor_name: 'Figma', date: '2026-09-20', total: 100, tax_amount: 7, currency: 'USD', vendor_taxid: TAX, category: 'Software' })).body;
 
   const one = await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-10`, a);
   assert.equal(one.status, 200);
@@ -252,13 +254,20 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal(sep.spend, 1655);           // disabled excluded
   assert.equal(sep.vat_claimable, 105);    // toll has no tax ID
   assert.equal(sep.vat_claimable_count, 2);
-  assert.equal(sep.count, 3);
+  assert.equal(sep.count, 4);              // includes the USD receipt waiting for its THB amount
   assert.equal(one.body.by_month.find((x: { month: string }) => x.month === '2026-10').spend, 214); // drafts count as spend
   assert.equal(one.body.by_category[0].category, 'Utilities');
   assert.ok(one.body.by_category.some((x: { category: string }) => x.category === 'Uncategorised'));
   const gaps = Object.fromEntries(one.body.vat_not_claimable.map((x: { reason: string; vat: number }) => [x.reason, x.vat]));
   assert.deepEqual(gaps, { missing_tax_id: 3.27, not_reviewed: 14 });
   assert.equal(one.body.organizations.length, 1);
+  assert.deepEqual(one.body.fx_pending, [{ currency: 'USD', count: 1, total: 100 }]);
+  await call('PUT', `/expenses/${usd._id}`, a, { total_thb: 3625 });
+  const conv = (await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-09`, a)).body;
+  assert.equal(conv.by_month[0].spend, 1655 + 3625);
+  assert.equal(conv.by_month[0].vat_claimable, 105);
+  assert.deepEqual(conv.fx_pending, []);
+  await call('PUT', `/expenses/${usd._id}`, a, { status: 'disabled' });
 
   // All properties: both orgs, nothing from orgs the user is not in
   const both = (await call('GET', '/reports/summary?organization_id=all&from=2026-09&to=2026-10', a)).body;
@@ -273,12 +282,12 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
 
   // VAT listing: one property and month, by date then invoice; flags the record that is not claimable
   const recent = (await call('GET', `/expenses?organization_id=${o1._id}&limit=2`, a)).body;
-  assert.deepEqual(recent.map((x: { vendor_name: string }) => x.vendor_name), ['Draft', 'Toll']);
+  assert.deepEqual(recent.map((x: { vendor_name: string }) => x.vendor_name), ['Draft', 'Figma']);
   const makro = recent.length && (await call('GET', `/expenses?organization_id=${o1._id}`, a)).body.find((x: { vendor_name: string }) => x.vendor_name === 'Makro');
   await new Promise((r) => setTimeout(r, 10));
   await call('PUT', `/expenses/${makro._id}`, a, { notes: 'checked' });
   assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&sort=updated&limit=1`, a)).body[0].vendor_name, 'Makro');
-  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&limit=abc`, a)).body.length, 5);
+  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&limit=abc`, a)).body.length, 6);
 
   const vat = await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-09`, a);
   assert.equal(vat.status, 200);

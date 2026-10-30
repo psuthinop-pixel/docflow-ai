@@ -55,6 +55,7 @@ window.DashboardPage = {
             vat: sum(current?.by_month, 'vat_claimable'),
             vatCount: sum(current?.by_month, 'vat_claimable_count'),
             vatMissingTaxId: missing.count,
+            fxNote: fxPendingNote(current?.fx_pending),
             categories: (current?.by_category || []).map(x => [x.category, x.spend]),
             activity: this.activity || [],
             recent: this.recent || [],
@@ -133,6 +134,8 @@ window.DashboardPage = {
             changeNote = `${up ? '↑' : '↓'} ${Math.abs(s.change).toFixed(0)}% vs last month (${fmtTHB(s.lastSpend)})`;
             changeStyle = `color:var(--${up ? 'red' : 'green'})`;
         }
+        // Foreign receipts without a THB amount aren't in the total; say so rather than understate silently
+        if (s.fxNote) { changeNote = s.fxNote; changeStyle = 'color:var(--amber)'; }
 
         const vatNote = s.vatMissingTaxId
             ? `${s.vatCount} tax invoice${s.vatCount === 1 ? '' : 's'} · ${s.vatMissingTaxId} missing tax ID`
@@ -191,7 +194,7 @@ window.DashboardPage = {
             <div class="activity-item">
               <div class="activity-icon-wrap">${a.icon}</div>
               <div style="flex:1">
-                <div class="activity-text">${a.verb}: ${esc(e.vendor_name || 'Unknown vendor')} — ${fmtTHB(e.total)}</div>
+                <div class="activity-text">${a.verb}: ${esc(e.vendor_name || 'Unknown vendor')} — ${Money.isForeign(e) ? Money.format(e.total, e.currency) : fmtTHB(Money.thb(e))}</div>
                 <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
                   <div class="activity-time">${fmtDateTime(e.updated_at || e.created_at)}</div>
                   <div style="font-size:0.7rem;color:var(--text-muted)">${sourceLabel(e)}</div>
@@ -244,7 +247,7 @@ window.DashboardPage = {
             ${s.recent.map(e => `<tr>
                 <td>${esc(e.vendor_name)}</td>
                 <td style="color:var(--text-secondary)">${fmtDate(e.date)}</td>
-                <td style="font-weight:700;color:var(--text-primary)">${fmtTHB(e.total)}</td>
+                <td style="font-weight:700;color:var(--text-primary)">${Money.cell(e)}</td>
                 <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
                 <td>${sourceLabel(e)}</td>
                 <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>

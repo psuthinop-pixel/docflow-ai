@@ -6,12 +6,13 @@ import { membershipRole, requireAuth } from '../auth.js';
 
 /*
  * Reporting definitions, shared by the Dashboard and Reports pages:
- * - Spend: every record except disabled ones, drafts included, grouped by the receipt date
- *   (falling back to when it was recorded).
- * - Claimable input VAT: confirmed or approved records with VAT > 0 and a 13-digit seller tax ID.
+ * - Spend: every record except disabled ones, drafts included, in THB (total_thb), grouped by the
+ *   receipt date (falling back to when it was recorded). A foreign-currency receipt is left out until
+ *   an owner/admin enters its THB amount; those are reported separately as fx_pending.
+ * - Claimable input VAT: THB, confirmed or approved records with VAT > 0 and a 13-digit seller tax ID.
  */
 const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
-const CLAIMABLE = `(e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$')`;
+const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$')`;
 const MAX_MONTHS = 36;
 
 const isMonth = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
@@ -54,7 +55,7 @@ export function reportsRouter(db: Db): Router {
     const params = [userId, orgId];
     const ranged = [...params, from, to];
 
-    const [orgs, byMonth, byCategory, statuses, vatGaps] = await Promise.all([
+    const [orgs, byMonth, byCategory, statuses, vatGaps, fxPending] = await Promise.all([
       all<{ id: string; organization_name: string; color: string | null; role: string }>(
         db,
         `SELECT o.id, o.organization_name, o.color, m.role FROM organizations o
@@ -64,7 +65,7 @@ export function reportsRouter(db: Db): Router {
       ),
       all<Row>(
         db,
-        `SELECT e.organization_id, ${MONTH} AS month, SUM(e.total) AS spend, COUNT(*)::int AS count,
+        `SELECT e.organization_id, ${MONTH} AS month, COALESCE(SUM(e.total_thb), 0) AS spend, COUNT(*)::int AS count,
                 SUM(CASE WHEN ${CLAIMABLE} THEN e.tax_amount ELSE 0 END) AS vat_claimable,
                 COUNT(*) FILTER (WHERE ${CLAIMABLE})::int AS vat_claimable_count
          ${base} AND ${MONTH} BETWEEN $3 AND $4
@@ -74,7 +75,7 @@ export function reportsRouter(db: Db): Router {
       all<Row>(
         db,
         `SELECT e.organization_id, COALESCE(NULLIF(e.category, ''), 'Uncategorised') AS category,
-                SUM(e.total) AS spend, COUNT(*)::int AS count
+                COALESCE(SUM(e.total_thb), 0) AS spend, COUNT(*)::int AS count
          ${base} AND ${MONTH} BETWEEN $3 AND $4
          GROUP BY 1, 2 ORDER BY 3 DESC`,
         ranged,
@@ -86,8 +87,16 @@ export function reportsRouter(db: Db): Router {
         db,
         `SELECT CASE WHEN e.status = 'draft' THEN 'not_reviewed' ELSE 'missing_tax_id' END AS reason,
                 COUNT(*)::int AS count, SUM(e.tax_amount) AS vat
-         ${base} AND ${MONTH} BETWEEN $3 AND $4 AND e.tax_amount > 0 AND NOT ${CLAIMABLE}
+         ${base} AND ${MONTH} BETWEEN $3 AND $4 AND e.currency = 'THB' AND e.tax_amount > 0 AND NOT ${CLAIMABLE}
          GROUP BY 1`,
+        ranged,
+      ),
+      // Foreign-currency receipts not in the totals yet, per currency
+      all<Row>(
+        db,
+        `SELECT e.currency, COUNT(*)::int AS count, SUM(e.total) AS total
+         ${base} AND ${MONTH} BETWEEN $3 AND $4 AND e.total_thb IS NULL
+         GROUP BY 1 ORDER BY 1`,
         ranged,
       ),
     ]);
@@ -99,6 +108,7 @@ export function reportsRouter(db: Db): Router {
       by_category: byCategory.map((x) => ({ organization_id: x.organization_id as string, category: x.category as string, spend: money(x.spend), count: x.count as number })),
       status_counts: statuses,
       vat_not_claimable: vatGaps.map((x) => ({ reason: x.reason as string, count: x.count as number, vat: money(x.vat) })),
+      fx_pending: fxPending.map((x) => ({ currency: x.currency as string, count: x.count as number, total: money(x.total) })),
     };
   }
 
@@ -109,7 +119,7 @@ export function reportsRouter(db: Db): Router {
       `SELECT e.id, e.date, e.invoice_number, e.vendor_name, e.vendor_taxid, e.vendor_branch, e.subtotal, e.tax_amount, e.total,
               e.status, e.receipt_id, ${CLAIMABLE} AS claimable
        FROM expenses e
-       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.tax_amount > 0 AND ${MONTH} = $2
+       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency = 'THB' AND e.tax_amount > 0 AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.invoice_number`,
       [orgId, month],
     );

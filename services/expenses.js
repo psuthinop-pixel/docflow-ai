@@ -109,3 +109,42 @@ window.ExpenseApi = {
         return true;
     }
 };
+
+// Amount helpers shared by the pages. Reports add up THB only: foreign-currency expenses count
+// once an owner/admin has entered the THB charged on the card statement (total_thb).
+window.Money = {
+    isForeign(e) {
+        return (e.currency || 'THB') !== 'THB';
+    },
+
+    /** True when a foreign-currency expense has no THB amount yet. */
+    fxPending(e) {
+        return this.isForeign(e) && e.total_thb == null;
+    },
+
+    /** THB amount to add to totals, or null while FX is pending. Falls back to total for rows saved before total_thb existed. */
+    thb(e) {
+        if (e.total_thb != null) return Number(e.total_thb);
+        return this.isForeign(e) ? null : Number(e.total || 0);
+    },
+
+    format(n, currency = 'THB') {
+        const s = Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return currency === 'THB' ? `฿${s}` : `${currency} ${s}`;
+    },
+
+    /** Table cell content: THB as before; foreign amounts show the original plus THB or an "FX pending" badge. */
+    cell(e) {
+        if (!this.isForeign(e)) return this.format(this.thb(e));
+        const thb = this.thb(e);
+        return `${this.format(e.total, e.currency)}<div style="font-size:0.72rem;font-weight:500;color:var(--text-secondary)">${
+            thb == null ? '<span class="badge badge-pending">FX pending</span>' : `≈ ${this.format(thb)}`}</div>`;
+    },
+
+    /** "USD 412.50, EUR 30.00" for expenses still waiting for a rate. */
+    pendingSummary(expenses) {
+        const sums = {};
+        expenses.filter(e => this.fxPending(e)).forEach(e => { sums[e.currency] = (sums[e.currency] || 0) + Number(e.total || 0); });
+        return Object.entries(sums).map(([c, n]) => this.format(n, c)).join(', ');
+    }
+};

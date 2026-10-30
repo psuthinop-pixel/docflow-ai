@@ -473,6 +473,13 @@ function branchLabel(b) {
     return b === '00000' ? 'สำนักงานใหญ่' : b ? `สาขาที่ ${b}` : '';
 }
 
+// "+ 2 foreign receipts not in the total yet (USD 412.50)" from a summary's fx_pending, or ''
+function fxPendingNote(list) {
+    const n = (list || []).reduce((t, x) => t + x.count, 0);
+    if (!n) return '';
+    return `+ ${n} foreign receipt${n === 1 ? '' : 's'} not in the total yet (${list.map(x => Money.format(x.total, x.currency)).join(', ')})`;
+}
+
 function sourceLabel(e) {
     return e.receipt_id ? '📤 Upload' : '✍️ Manual';
 }

@@ -287,12 +287,15 @@ export function parseReceipt(raw: string): ReceiptFields {
 /** Sanity checks surfaced to the reviewer; never blocks saving. */
 export function validateFields(f: ReceiptFields): string[] {
   const warnings: string[] = [];
-  if (f.vendor_taxid && !isValidThaiTaxId(f.vendor_taxid)) warnings.push('Tax ID checksum is invalid');
-  if (f.is_tax_invoice && !f.vendor_taxid) warnings.push('Tax invoice without a vendor tax ID');
-  if (f.is_tax_invoice && f.vendor_taxid && !f.vendor_branch) warnings.push('Seller branch not found (สำนักงานใหญ่ or สาขาที่) — needed for the input VAT report');
+  const thai = f.currency === 'THB';
+  if (!thai) warnings.push(`Amounts are in ${f.currency}; an owner/admin enters the THB charged from the card statement later`);
+  if (thai && f.vendor_taxid && !isValidThaiTaxId(f.vendor_taxid)) warnings.push('Tax ID checksum is invalid');
+  if (thai && f.is_tax_invoice && !f.vendor_taxid) warnings.push('Tax invoice without a vendor tax ID');
+  if (thai && f.is_tax_invoice && f.vendor_taxid && !f.vendor_branch) warnings.push('Seller branch not found (สำนักงานใหญ่ or สาขาที่) — needed for the input VAT report');
   if (f.total === null) warnings.push('Total not found');
   if (!f.date) warnings.push('Date not found');
-  if (f.total !== null && f.tax_amount !== null && f.tax_amount > 0) {
+  // Thai VAT and tax IDs only apply to THB receipts.
+  if (thai && f.total !== null && f.tax_amount !== null && f.tax_amount > 0) {
     const expected = Math.round((f.total * 7) / 107 * 100) / 100;
     if (Math.abs(expected - f.tax_amount) > 1) warnings.push(`VAT ${f.tax_amount} is not 7% of total (expected ≈ ${expected})`);
   }
