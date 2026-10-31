@@ -7,6 +7,19 @@
     <title>DocFlow AI — Smart Document & Expense Management</title>
     <meta name="description"
         content="AI-powered receipt reader, email scraper, LINE chatbot, Google Drive & Sheets integration for multi-company expense management.">
+    <script>
+        // Apply the saved theme before first paint so the page never flashes the wrong one
+        (function () {
+            var store = {};
+            try { store = window.localStorage; } catch (e) { }
+            var theme = (store && store.getItem && store.getItem('docflow-skin')) === 'mission-control' ? 'mission-control' : 'default';
+            var mode = (store && store.getItem && store.getItem('docflow-theme')) === 'light' ? 'light' : 'dark';
+            var root = document.documentElement;
+            root.setAttribute('data-theme', theme);
+            root.setAttribute('data-mode', mode);
+            if (theme === 'mission-control') document.write('<link rel="stylesheet" id="fuiFonts" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;500&display=swap">');
+        })();
+    </script>
     <link rel="stylesheet" href="style.css">
 </head>
 

@@ -66,7 +66,15 @@ window.SettingsPage = {
       <div class="settings-section">
         <div class="settings-title">🎨 Appearance</div>
         <div class="settings-subtitle">Saved in this browser</div>
-        <div class="filter-chips" style="margin-bottom:0" role="radiogroup" aria-label="Theme">
+        <div class="theme-cards" role="radiogroup" aria-label="Theme">
+          ${[['default', 'Default', 'Rounded cards, Inter, indigo accent'], ['mission-control', 'Mission Control', 'Monospace, square panels, live-data accent']].map(([t, label, note]) => `
+            <button class="theme-card ${App.currentSkin === t ? 'active' : ''}" role="radio" aria-checked="${App.currentSkin === t}"
+              onclick="App.setSkin('${t}')">
+              <span class="theme-swatch theme-swatch-${t}" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="theme-card-text"><strong>${label}</strong><small>${note}</small></span>
+            </button>`).join('')}
+        </div>
+        <div class="filter-chips" style="margin-bottom:0" role="radiogroup" aria-label="Brightness">
           ${[['dark', '🌙 Dark'], ['light', '☀️ Light']].map(([t, label]) => `
             <button class="filter-chip ${App.currentTheme === t ? 'active' : ''}" role="radio" aria-checked="${App.currentTheme === t}"
               onclick="SettingsPage.setTheme('${t}')">${label}</button>`).join('')}

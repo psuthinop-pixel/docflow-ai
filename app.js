@@ -4,6 +4,7 @@ window.App = {
     currentPage: 'dashboard',
     currentCompany: null,
     currentTheme: localStorage.getItem('docflow-theme') || 'dark',
+    currentSkin: localStorage.getItem('docflow-skin') === 'mission-control' ? 'mission-control' : 'default',
     currentUser: null,
     organizations: [],
 
@@ -77,8 +78,25 @@ window.App = {
         this.applyTheme();
     },
 
+    setSkin(skin) {
+        this.currentSkin = skin === 'mission-control' ? 'mission-control' : 'default';
+        localStorage.setItem('docflow-skin', this.currentSkin);
+        this.applyTheme();
+        this.navigate(this.currentPage); // re-render so theme-specific icons and labels swap
+    },
+
     applyTheme() {
-        document.documentElement.setAttribute('data-mode', this.currentTheme);
+        const root = document.documentElement;
+        root.setAttribute('data-theme', this.currentSkin);
+        root.setAttribute('data-mode', this.currentTheme);
+        // Mission Control fonts load only when that theme is in use
+        if (this.currentSkin === 'mission-control' && !document.getElementById('fuiFonts')) {
+            const link = document.createElement('link');
+            link.id = 'fuiFonts';
+            link.rel = 'stylesheet';
+            link.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;500&display=swap';
+            document.head.appendChild(link);
+        }
         const icon = document.getElementById('themeIcon');
         if (icon) icon.textContent = this.currentTheme === 'dark' ? '🌙' : '☀️';
     },
