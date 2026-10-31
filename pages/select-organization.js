@@ -117,7 +117,7 @@ window.SelectOrganizationPage = {
       // Add hover effects dynamically since inline styles don't support pseudo-classes well
       html += `
                 <style>
-                    .org-card:hover { border-color: var(--accent) !important; background: rgba(99,102,241,0.05); transform: translateY(-1px); }
+                    .org-card:hover { border-color: var(--accent) !important; background: var(--accent-faint); transform: translateY(-1px); }
                 </style>
             `;
 

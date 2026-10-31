@@ -13,7 +13,7 @@ window.LinePage = {
 
       <div class="grid-2" style="margin-bottom:20px">
         <div class="integration-card card-glow">
-          <div class="integration-logo" style="background:linear-gradient(135deg,#00b900,#00d900);font-size:1.8rem">💬</div>
+          <div class="integration-logo" style="background:var(--brand-line);font-size:1.8rem">💬</div>
           <div class="integration-info">
             <div class="integration-name">DocFlow LINE Bot</div>
             <div class="integration-desc">@docflow_bot · Channel ID: 2006xxxxxx</div>
@@ -73,7 +73,7 @@ window.LinePage = {
             <div class="line-bubble">
               <div class="line-sender">${m.sender} <span style="font-size:0.72rem;color:var(--text-muted);font-weight:400">· ${m.time}</span></div>
               <div class="line-text">${m.message}</div>
-              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:8px;background:rgba(255,255,255,0.04);border-radius:6px">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:8px;background:var(--line-soft);border-radius:var(--radius-xs)">
                 <span style="font-size:1.2rem">🧾</span>
                 <div style="flex:1">
                   <div style="font-size:0.82rem;font-weight:600">${m.vendor}</div>
@@ -90,7 +90,7 @@ window.LinePage = {
         </div>`).join('')}
       </div>
 
-      <div class="card" style="margin-top:20px;background:var(--amber-soft);border-color:rgba(245,158,11,0.3)">
+      <div class="card" style="margin-top:20px;background:var(--amber-soft);border-color:var(--amber-line)">
         <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:1.5rem">💡</span>
           <div>

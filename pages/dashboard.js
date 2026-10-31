@@ -16,6 +16,8 @@ window.DashboardPage = {
                 ExpenseApi.listExpenses(companyId, { limit: 5, sort: 'updated' }),
                 ExpenseApi.listExpenses(companyId, { limit: 8 }),
             ]);
+            // The daily spend chart is drawn in Mission Control only; it needs this month's rows
+            this.monthRows = UI.isFui() ? await ExpenseApi.listExpenses(companyId, { limit: 500 }) : [];
             this.summary = { current, previous };
             this.activity = activity.filter(e => e.status !== 'disabled');
             this.recent = recent.filter(e => e.status !== 'disabled').slice(0, 6);
@@ -58,8 +60,50 @@ window.DashboardPage = {
             fxNote: fxPendingNote(current?.fx_pending),
             categories: (current?.by_category || []).map(x => [x.category, x.spend]),
             activity: this.activity || [],
+            daily: this.dailySpend(),
             recent: this.recent || [],
         };
+    },
+
+    /** THB spend per day this month, counted like the server's spend total (not disabled, THB amount known) */
+    dailySpend() {
+        const ym = thisMonth();
+        const [y, m] = ym.split('-').map(Number);
+        const days = new Array(new Date(y, m, 0).getDate()).fill(0);
+        for (const e of this.monthRows || []) {
+            if (e.status === 'disabled' || e.total_thb == null || !String(e.date || '').startsWith(ym)) continue;
+            days[+e.date.slice(8, 10) - 1] += Number(e.total_thb) || 0;
+        }
+        return days;
+    },
+
+    /** Mission Control line chart: accent line, 12% area fill, track-coloured gridlines */
+    renderDailyChart(days, monthShort) {
+        const W = 600, H = 160, pad = 4;
+        const max = Math.max(...days, 1);
+        const today = new Date().getDate();
+        const pts = days.slice(0, today).map((v, i) => [pad + (i / (days.length - 1)) * (W - pad * 2), H - pad - (v / max) * (H - pad * 2)]);
+        const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+        const area = pts.length ? `${line}L${pts[pts.length - 1][0].toFixed(1)},${H - pad}L${pts[0][0].toFixed(1)},${H - pad}Z` : '';
+        const grid = [0.25, 0.5, 0.75].map(f => `<line x1="0" x2="${W}" y1="${(H * f).toFixed(1)}" y2="${(H * f).toFixed(1)}" />`).join('');
+        const peak = days.indexOf(max);
+        return `
+        <div class="card fui-chart-card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${UI.fui(`Daily spend // ${monthShort}`)}</div>
+              <div class="card-subtitle">Peak ${fmtTHB(days[peak] || 0)} on day ${peak + 1}</div>
+            </div>
+            ${UI.cardLink("Pages.reports()", 'Open reports')}
+          </div>
+          <svg class="fui-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+            aria-label="Daily spend this month, highest ${fmtTHB(days[peak] || 0)} on day ${peak + 1}">
+            <g class="fui-chart-grid">${grid}</g>
+            ${area ? `<path class="fui-chart-area" d="${area}" />` : ''}
+            ${line ? `<path class="fui-chart-line" d="${line}" vector-effect="non-scaling-stroke" />` : ''}
+          </svg>
+          <div class="fui-chart-axis"><span>01</span><span>${String(Math.ceil(days.length / 2)).padStart(2, '0')}</span><span>${days.length}</span></div>
+        </div>`;
     },
 
     renderSkeleton() {
@@ -77,9 +121,9 @@ window.DashboardPage = {
       </div>`;
     },
 
-    kpi({ color, icon, label, value, note, noteStyle = '', status }) {
+    kpi({ color, icon, label, value, note, noteStyle = '', status, live = false }) {
         return `
-        <button class="kpi-card kpi-card-link" style="--kpi-color:var(--${color});--kpi-bg:var(--${color}-soft)"
+        <button class="kpi-card kpi-card-link${live ? ' kpi-live' : ''}" style="--kpi-color:var(--${color});--kpi-bg:var(--${color}-soft)"
           onclick="Pages.receiptsFiltered('${status}')" title="Show these receipts">
           <div class="kpi-icon">${icon}</div>
           <div class="kpi-label">${label}</div>
@@ -106,21 +150,21 @@ window.DashboardPage = {
         <div class="page-header-left">
           <h1 style="display:flex;align-items:center;gap:10px">
             <span class="company-dot" style="width:12px;height:12px;background:${org ? orgColor(org) : 'var(--accent)'}"></span>
-            ${esc(org ? org.organization_name : 'Dashboard')}
+            ${org ? esc(org.organization_name) : UI.fui('Dashboard')}
           </h1>
           <p>${monthName} · what needs your attention</p>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="Pages.receipts()">📤 Upload Receipt</button>
+        <button class="btn btn-primary btn-sm" onclick="Pages.receipts()">${UI.icon('upload', '📤')} ${UI.isFui() ? UI.fui('Upload receipt') : 'Upload Receipt'}</button>
       </div>
 
       ${this.error ? `
       <div class="card" style="margin-bottom:20px;border-color:var(--red);background:var(--red-soft)">
         <div style="display:flex;align-items:center;gap:12px">
           <div style="flex:1">
-            <div style="font-weight:700;color:var(--red)">⚠️ Couldn't load expenses</div>
+            <div style="font-weight:700;color:var(--red)">${UI.icon('alert', '⚠️')} Couldn't load expenses</div>
             <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px">${esc(this.error)}. No figures are shown until the data loads.</div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="DashboardPage.retry()">↻ Retry</button>
+          <button class="btn btn-secondary btn-sm" onclick="DashboardPage.retry()">${UI.icon('retry', '↻')} Retry</button>
         </div>
       </div>` : this.renderBody(s, monthName, isApprover)}
     `;
@@ -150,41 +194,52 @@ window.DashboardPage = {
         };
 
         const maxCat = s.categories.length ? s.categories[0][1] : 0;
+        const F = UI.isFui();
+        const monthShort = new Date().toLocaleDateString('en-GB', { month: 'short' });
+        // Mission Control labels read like "SPEND // OCT"
+        const lbl = (fui, plain) => (F ? UI.fui(fui) : plain);
 
         return `
 
       <div class="kpi-grid">
         ${this.kpi({
-            color: 'accent', icon: '💰', label: `Spend in ${monthName}`, value: fmtTHB(s.spend),
+            color: 'accent', icon: UI.icon('spend', '💰'), label: lbl(`Spend // ${monthShort}`, `Spend in ${monthName}`), value: fmtTHB(s.spend),
             note: changeNote, noteStyle: changeStyle, status: 'all',
         })}
         ${this.kpi({
-            color: 'amber', icon: '📝', label: 'Drafts to review', value: s.drafts,
+            color: 'amber', icon: UI.icon('draft', '📝'), label: lbl('Drafts // review', 'Drafts to review'), value: s.drafts,
             note: s.drafts ? 'Check OCR fields and confirm' : 'Nothing waiting',
             noteStyle: s.drafts ? 'color:var(--amber)' : 'color:var(--text-muted)', status: 'draft',
         })}
         ${this.kpi({
-            color: 'cyan', icon: '⏳', label: 'Awaiting approval', value: s.awaitingApproval,
+            color: 'cyan', icon: UI.icon('clock', '⏳'), label: lbl('Awaiting // approval', 'Awaiting approval'), live: s.awaitingApproval > 0, value: s.awaitingApproval,
             note: s.awaitingApproval ? (isApprover ? 'Ready for you to approve' : 'Waiting for an owner/admin') : 'All approved',
             noteStyle: s.awaitingApproval ? 'color:var(--cyan)' : 'color:var(--text-muted)', status: 'confirmed',
         })}
         ${this.kpi({
-            color: 'green', icon: '🧾', label: 'Input VAT this month', value: fmtTHB(s.vat),
+            color: 'green', icon: UI.icon('vat', '🧾'), label: lbl(`Input VAT // ${monthShort}`, 'Input VAT this month'), value: fmtTHB(s.vat),
             note: vatNote, noteStyle: s.vatMissingTaxId ? 'color:var(--amber)' : 'color:var(--green)', status: 'all',
         })}
       </div>
+      ${F ? this.renderDailyChart(s.daily, monthShort.toUpperCase()) : ''}
 
       <div class="grid-2-1">
-        <div class="card">
+        <div class="card${F ? ' fui-logs' : ''}">
           <div class="card-header">
             <div>
-              <div class="card-title">📋 Recent Activity</div>
+              <div class="card-title">${F ? UI.fui('Logs') : '📋 Recent Activity'}</div>
               <div class="card-subtitle">Latest changes to expenses</div>
             </div>
+            ${UI.cardLink("Pages.receiptsFiltered('all')", 'Open receipts')}
           </div>
-          ${recentActivity.length === 0 ? `
+          ${F && recentActivity.length ? `<ol class="fui-log-list">${recentActivity.map(e => `
+            <li><span class="fui-log-time">${fmtDateTime(e.updated_at || e.created_at)}</span>
+              <span class="fui-log-verb status-${esc(e.status)}">${esc((activityLabel[e.status] || { verb: 'Updated' }).verb.toUpperCase())}</span>
+              <span class="fui-log-msg">${esc(e.vendor_name || 'Unknown vendor')} — ${Money.isForeign(e) ? Money.format(e.total, e.currency) : fmtTHB(Money.thb(e))}</span></li>`).join('')}
+            <li class="fui-log-cursor" aria-hidden="true">_</li></ol>` :
+          recentActivity.length === 0 ? `
             <div class="empty-state">
-              <div class="empty-state-icon">📤</div>
+              <div class="empty-state-icon">${UI.icon('upload', '📤')}</div>
               <p>No receipts yet. Upload your first one to get started.</p>
               <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="Pages.receipts()">📤 Upload Receipt</button>
             </div>` :
@@ -208,9 +263,10 @@ window.DashboardPage = {
           <div class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">🏷 Spend by category</div>
+                <div class="card-title">${lbl(`Category // ${monthShort}`, '🏷 Spend by category')}</div>
                 <div class="card-subtitle">${monthName} · ${s.thisMonthCount} record${s.thisMonthCount === 1 ? '' : 's'}</div>
               </div>
+              ${UI.cardLink('Pages.reports()', 'Open reports')}
             </div>
             ${s.categories.length === 0
                 ? '<div style="padding:12px 0;font-size:0.82rem;color:var(--text-muted)">No spend recorded this month.</div>'
@@ -224,7 +280,7 @@ window.DashboardPage = {
           </div>
 
           <div style="font-size:0.75rem;color:var(--text-muted);padding:0 4px">
-            🔗 Email, LINE, Google Drive and Sheets intake are coming in a later phase.
+            ${UI.icon('link', '🔗')} Email, LINE, Google Drive and Sheets intake are coming in a later phase.
           </div>
         </div>
       </div>
@@ -232,10 +288,10 @@ window.DashboardPage = {
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">💳 Recent Expenses</div>
+            <div class="card-title">${lbl('Recent // expenses', '💳 Recent Expenses')}</div>
             <div class="card-subtitle">Newest receipt dates first, disabled records excluded</div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="Pages.receiptsFiltered('all')">View All →</button>
+          ${F ? UI.cardLink("Pages.receiptsFiltered('all')", 'View all receipts') : `<button class="btn btn-ghost btn-sm" onclick="Pages.receiptsFiltered('all')">View All →</button>`}
         </div>
         ${s.recent.length === 0
             ? '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No expenses recorded yet.</div>'
