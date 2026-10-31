@@ -172,7 +172,7 @@ window.SettingsPage = {
             const on = ocr.engines[key];
             return `<div class="settings-row">
               <span>${names[key]} <span style="color:var(--text-muted);font-size:0.75rem">${note}</span></span>
-              <span class="badge ${on ? 'badge-confirmed' : 'badge-draft'}">${on ? (ocr.active === key ? '● In use' : 'Configured') : 'Not set up'}</span>
+              <span class="badge ${on ? 'badge-confirmed' : 'badge-draft'}">${on ? (ocr.active === key ? (UI.isFui() ? 'In use' : '● In use') : 'Configured') : 'Not set up'}</span>
             </div>`;
         };
         return `

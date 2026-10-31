@@ -500,7 +500,7 @@ function fxPendingNote(list) {
 }
 
 function sourceLabel(e) {
-    return e.receipt_id ? '📤 Upload' : '✍️ Manual';
+    return e.receipt_id ? `${UI.icon('upload', '📤')} Upload` : `${UI.icon('draft', '✍️')} Manual`;
 }
 
 // ─── Theme-aware UI helpers ───
