@@ -78,7 +78,7 @@ window.App = {
     },
 
     applyTheme() {
-        document.documentElement.setAttribute('data-theme', this.currentTheme);
+        document.documentElement.setAttribute('data-mode', this.currentTheme);
         const icon = document.getElementById('themeIcon');
         if (icon) icon.textContent = this.currentTheme === 'dark' ? '🌙' : '☀️';
     },

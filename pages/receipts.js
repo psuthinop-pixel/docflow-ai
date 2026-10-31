@@ -157,7 +157,7 @@ window.ReceiptsPage = {
                   ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${hasTax ? `${Money.format(e.tax_amount, e.currency)} tax` : 'Foreign'}</span>`
                   : hasTax
                   ? `<span style="font-size:0.8rem;color:var(--green)">${fmtTHB(e.tax_amount)} VAT</span>` 
-                  : `<span class="badge badge-error" style="background:rgba(239, 68, 68, 0.1);color:rgb(239, 68, 68);border:1px solid rgba(239, 68, 68, 0.2)">⚠️ No Tax</span>`}
+                  : `<span class="badge badge-error badge-notax">⚠️ No Tax</span>`}
               </td>
               <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
               <td style="text-align:right">
