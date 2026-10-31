@@ -34,36 +34,36 @@
             </div>
 
             <nav class="sidebar-nav" aria-label="Main">
-                <div class="sidebar-section-label">Workspace</div>
+                <div class="sidebar-section-label" data-fui>Workspace</div>
                 <button class="nav-item active" data-page="dashboard" onclick="App.navigate('dashboard')">
-                    <span class="nav-icon">📊</span> Dashboard
+                    <span class="nav-icon" data-icon="dashboard">📊</span> <span data-fui>Dashboard</span>
                 </button>
                 <button class="nav-item" data-page="receipts" onclick="App.navigate('receipts')">
-                    <span class="nav-icon">🧾</span> Receipts
+                    <span class="nav-icon" data-icon="receipts">🧾</span> <span data-fui>Receipts</span>
                     <span class="nav-badge" id="receiptsBadge" style="display:none">0</span>
                 </button>
                 <button class="nav-item" data-page="reports" onclick="App.navigate('reports')">
-                    <span class="nav-icon">📈</span> Reports
+                    <span class="nav-icon" data-icon="reports">📈</span> <span data-fui>Reports</span>
                 </button>
 
-                <div class="sidebar-section-label">Coming soon</div>
+                <div class="sidebar-section-label" data-fui>Coming soon</div>
                 <button class="nav-item nav-item-soon" data-page="email" onclick="App.navigate('email')">
-                    <span class="nav-icon">📧</span> Email intake <span class="nav-soon">Soon</span>
+                    <span class="nav-icon" data-icon="mail">📧</span> <span data-fui>Email intake</span> <span class="nav-soon">Soon</span>
                 </button>
                 <button class="nav-item nav-item-soon" data-page="line" onclick="App.navigate('line')">
-                    <span class="nav-icon">💬</span> LINE bot <span class="nav-soon">Soon</span>
+                    <span class="nav-icon" data-icon="chat">💬</span> <span data-fui>LINE bot</span> <span class="nav-soon">Soon</span>
                 </button>
                 <button class="nav-item nav-item-soon" data-page="drive" onclick="App.navigate('drive')">
-                    <span class="nav-icon">📁</span> Google Drive <span class="nav-soon">Soon</span>
+                    <span class="nav-icon" data-icon="folder">📁</span> <span data-fui>Google Drive</span> <span class="nav-soon">Soon</span>
                 </button>
                 <button class="nav-item nav-item-soon" data-page="sheets" onclick="App.navigate('sheets')">
-                    <span class="nav-icon">🗂️</span> Google Sheets <span class="nav-soon">Soon</span>
+                    <span class="nav-icon" data-icon="sheet">🗂️</span> <span data-fui>Google Sheets</span> <span class="nav-soon">Soon</span>
                 </button>
             </nav>
 
             <div class="sidebar-bottom">
                 <button class="nav-item" data-page="settings" onclick="App.navigate('settings')">
-                    <span class="nav-icon">⚙️</span> Settings
+                    <span class="nav-icon" data-icon="settings">⚙️</span> <span data-fui>Settings</span>
                 </button>
             </div>
         </aside>

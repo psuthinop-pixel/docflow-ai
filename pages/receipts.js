@@ -20,7 +20,7 @@ window.ReceiptsPage = {
     return `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>🔍 Receipts</h1>
+          <h1>${UI.isFui() ? UI.fui('Receipts') : '🔍 Receipts'}</h1>
           <p>Upload a receipt image or PDF — fields are extracted on the server for you to review</p>
         </div>
       </div>
@@ -29,7 +29,7 @@ window.ReceiptsPage = {
         <div>
           <div class="upload-zone" id="uploadZone" ondragover="ReceiptsPage.onDragOver(event)" ondragleave="ReceiptsPage.onDragLeave(event)" ondrop="ReceiptsPage.onDrop(event)">
             <input type="file" accept="image/jpeg,image/png,image/webp,.pdf" onchange="ReceiptsPage.onFileSelect(event)" id="fileInput">
-            <span class="upload-zone-icon">📤</span>
+            <span class="upload-zone-icon">${UI.icon('upload', '📤')}</span>
             <h3>Drop receipt here or click to browse</h3>
             <p>Supports JPG, PNG, WebP, PDF · Max 10 MB</p>
             <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
@@ -70,7 +70,7 @@ window.ReceiptsPage = {
         </div>
         <div id="ocrPlaceholder" style="${this.ocrDone ? 'display:none' : ''}">
           <div class="card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;text-align:center">
-            <div style="font-size:3rem;margin-bottom:16px">🤖</div>
+            <div style="font-size:3rem;margin-bottom:16px">${UI.icon('scan', '🤖')}</div>
             <div style="font-size:1.1rem;font-weight:700;margin-bottom:8px">AI OCR Ready</div>
             <p style="font-size:0.85rem;color:var(--text-secondary);max-width:240px">Upload a receipt to see the extracted data appear here</p>
           </div>
@@ -80,11 +80,11 @@ window.ReceiptsPage = {
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">💳 Processed Receipts</div>
+            <div class="card-title">${UI.isFui() ? UI.fui('Processed // receipts') : '💳 Processed Receipts'}</div>
             <div class="card-subtitle" id="expensesSubtitle">${this.recordCount()}</div>
           </div>
         </div>
-        <div class="filter-chips" id="statusFilterChips">${this.renderFilterChips()}</div>
+        <div class="filter-chips" id="statusFilterChips" role="tablist" aria-label="Filter by status">${this.renderFilterChips()}</div>
         <div id="expensesTableContainer">
             ${this.renderExpensesTable()}
         </div>
@@ -95,14 +95,14 @@ window.ReceiptsPage = {
   renderFilterChips() {
     const filters = [
       ['all', 'All'], ['draft', 'Drafts'], ['confirmed', 'Awaiting approval'], ['approved', 'Approved'], ['disabled', 'Disabled'],
-      ['fx', '💱 Needs THB amount'],
+      ['fx', UI.isFui() ? 'FX pending' : '💱 Needs THB amount'],
     ];
     return filters.map(([key, label]) => {
       const count = key === 'all' ? this.expenses.length
         : key === 'fx' ? this.expenses.filter(e => Money.fxPending(e)).length
         : this.expenses.filter(e => e.status === key).length;
       if (key === 'fx' && !count && this.statusFilter !== 'fx') return '';
-      return `<button class="filter-chip ${this.statusFilter === key ? 'active' : ''}" onclick="ReceiptsPage.setFilter('${key}')">${label} · ${count}</button>`;
+      return `<button class="filter-chip ${this.statusFilter === key ? 'active' : ''}"${UI.isFui() ? ` role="tab" aria-selected="${this.statusFilter === key}"` : ''} onclick="ReceiptsPage.setFilter('${key}')">${label} · ${count}</button>`;
     }).join('');
   },
 
@@ -138,10 +138,24 @@ window.ReceiptsPage = {
       .filter(({ e }) => this.statusFilter === 'all' || (this.statusFilter === 'fx' ? Money.fxPending(e) : e.status === this.statusFilter));
     if (rows.length === 0) return `<div style="padding:20px;text-align:center;color:var(--text-secondary)">${this.statusFilter === 'fx' ? 'No receipts waiting for an exchange rate.' : 'Nothing here — no records with this status.'}</div>`;
 
-    return `
+    const F = UI.isFui();
+    // Mission Control: the original amount and its THB value get their own columns, and
+    // receipts without a rate are called out with the action that fixes them
+    const pendingIdx = F ? this.expenses.findIndex(e => Money.fxPending(e)) : -1;
+    const fxBanner = pendingIdx < 0 ? '' : `
+        <div class="fui-banner" role="status">
+          <span>${UI.icon('alert', '⚠️')} No THB rate — excluded from spend total</span>
+          <button class="btn btn-primary btn-sm" onclick="ReceiptsPage.viewExpense(${pendingIdx})">${UI.fui('Set FX rate')}</button>
+        </div>`;
+    const thbCell = e => {
+      const thb = Money.thb(e);
+      return thb == null ? '<span class="fx-pending-cell">— PENDING</span>' : Money.format(thb);
+    };
+
+    return `${fxBanner}
         <div class="table-scroll"><table class="data-table">
           <thead><tr>
-            <th>Vendor</th><th>Date</th><th>Amount</th><th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
+            <th>Vendor</th><th>Date</th>${F ? '<th>Amount</th><th>THB</th>' : '<th>Amount</th>'}<th>Category</th><th>Tax Info</th><th>Status</th><th style="text-align:right">Actions</th>
           </tr></thead>
           <tbody>
             ${rows.map(({ e, idx }) => {
@@ -150,20 +164,20 @@ window.ReceiptsPage = {
             <tr>
               <td>${esc(e.vendor_name)}${e.invoice_number ? `<div style="font-size:0.72rem;color:var(--text-secondary)">#${esc(e.invoice_number)}</div>` : ''}</td>
               <td>${fmtDate(e.date)}</td>
-              <td style="font-weight:700">${Money.cell(e)}</td>
+              ${F ? `<td>${Money.format(e.total, e.currency)}</td><td class="num-strong">${thbCell(e)}</td>` : `<td style="font-weight:700">${Money.cell(e)}</td>`}
               <td>${e.category ? `<span class="badge badge-info">${esc(e.category)}</span>` : ''}</td>
               <td>
                 ${Money.isForeign(e)
                   ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${hasTax ? `${Money.format(e.tax_amount, e.currency)} tax` : 'Foreign'}</span>`
                   : hasTax
                   ? `<span style="font-size:0.8rem;color:var(--green)">${fmtTHB(e.tax_amount)} VAT</span>` 
-                  : `<span class="badge badge-error badge-notax">⚠️ No Tax</span>`}
+                  : `<span class="badge badge-error badge-notax">${UI.icon('alert', '⚠️')} No Tax</span>`}
               </td>
               <td><span class="badge badge-${esc(e.status)}">${esc(e.status)}</span></td>
               <td style="text-align:right">
-                ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')">📎</button>` : ''}
-                ${this.canApprove() && e.status === 'confirmed' && !Money.fxPending(e) ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">✔ Approve</button>` : ''}
-                <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">✏️ Edit</button>
+                ${e.receipt_id ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openFile('${e.receipt_id}')"${F ? ' aria-label="Open file"' : ''}>${UI.icon('clip', '📎')}</button>` : ''}
+                ${this.canApprove() && e.status === 'confirmed' && !Money.fxPending(e) ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.approve(${idx})">${UI.icon('check', '✔')} Approve</button>` : ''}
+                ${F && Money.fxPending(e) ? `<button class="btn btn-primary btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">${UI.fui('Set FX rate')}</button>` : `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.viewExpense(${idx})">${UI.icon('edit', '✏️')} Edit</button>`}
               </td>
             </tr>`;
             }).join('')}

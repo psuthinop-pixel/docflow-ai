@@ -98,7 +98,8 @@ window.App = {
             document.head.appendChild(link);
         }
         const icon = document.getElementById('themeIcon');
-        if (icon) icon.textContent = this.currentTheme === 'dark' ? '🌙' : '☀️';
+        if (icon) icon.innerHTML = UI.icon(this.currentTheme === 'dark' ? 'moon' : 'sun', this.currentTheme === 'dark' ? '🌙' : '☀️');
+        UI.applyStaticIcons();
     },
 
     navigate(page) {
@@ -177,7 +178,7 @@ window.App = {
             settings: 'Settings',
         };
         const title = titles[page] || titles.dashboard;
-        document.getElementById('topbarTitle').textContent = title;
+        document.getElementById('topbarTitle').innerHTML = UI.fui(title);
         document.title = `${title} · DocFlow AI`;
 
         // Render page
@@ -501,3 +502,78 @@ function fxPendingNote(list) {
 function sourceLabel(e) {
     return e.receipt_id ? '📤 Upload' : '✍️ Manual';
 }
+
+// ─── Theme-aware UI helpers ───
+// The default theme gets back exactly the markup it always had; Mission Control gets
+// stroke icons, slashed-zero display labels and corner links. Pages re-render on theme change.
+window.UI = {
+    isFui() {
+        return App.currentSkin === 'mission-control';
+    },
+
+    // 24px-grid stroke paths, drawn at 1.5px
+    paths: {
+        dashboard: '<rect x="3.5" y="3.5" width="7" height="9"/><rect x="13.5" y="3.5" width="7" height="5"/><rect x="13.5" y="11.5" width="7" height="9"/><rect x="3.5" y="15.5" width="7" height="5"/>',
+        receipts: '<path d="M5.5 3.5h13v17l-2.2-1.5-2.1 1.5-2.2-1.5-2.1 1.5-2.2-1.5-2.2 1.5z"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/>',
+        reports: '<path d="M3.5 20.5h17"/><path d="M5.5 16l4.5-5 3.5 3 5.5-7"/><path d="M15 7h4v4"/>',
+        mail: '<rect x="3.5" y="5.5" width="17" height="13"/><path d="M3.5 6.5l8.5 7 8.5-7"/>',
+        chat: '<path d="M4.5 5.5h15v10h-8l-4 3.5v-3.5h-3z"/>',
+        folder: '<path d="M3.5 6.5h6l2 2h9v10h-17z"/>',
+        sheet: '<rect x="4.5" y="3.5" width="15" height="17"/><path d="M4.5 9h15M4.5 14.5h15M10 9v11.5"/>',
+        settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+        upload: '<path d="M12 15.5v-11M7.5 9L12 4.5 16.5 9"/><path d="M4.5 15.5v4h15v-4"/>',
+        alert: '<path d="M12 3.5l9 16h-18z"/><path d="M12 10v4.5M12 17v.5"/>',
+        activity: '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>',
+        tag: '<path d="M3.5 3.5h8l9 9-8 8-9-9z"/><circle cx="8" cy="8" r="1.2"/>',
+        card: '<rect x="3.5" y="5.5" width="17" height="13"/><path d="M3.5 10h17M7 15h4"/>',
+        spend: '<path d="M12 3.5v17M16 7.5c-1-1.3-2.4-2-4-2-2.2 0-4 1.2-4 3s1.8 2.6 4 3 4 1.2 4 3-1.8 3-4 3c-1.7 0-3.2-.8-4-2"/>',
+        draft: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/>',
+        clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+        vat: '<path d="M5.5 18.5l13-13"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>',
+        search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/>',
+        scan: '<path d="M3.5 8V3.5H8M16 3.5h4.5V8M20.5 16v4.5H16M8 20.5H3.5V16"/><path d="M7 12h10"/>',
+        check: '<path d="M4.5 12.5l5 5 10-11"/>',
+        edit: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/>',
+        clip: '<path d="M16.5 7.5l-7.6 7.6a2 2 0 002.8 2.8l8-8a4 4 0 00-5.6-5.6l-8 8a6 6 0 008.5 8.5l6.4-6.4"/>',
+        retry: '<path d="M19.5 12a7.5 7.5 0 11-2.2-5.3"/><path d="M19.5 4v4h-4"/>',
+        link: '<path d="M10 14l10-10M13 4h7v7"/><path d="M19.5 14v6.5h-16v-16H10"/>',
+        flag: '<path d="M5.5 21V4.5h12l-2 4 2 4h-12"/>',
+        sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+        moon: '<path d="M19.5 14.5A8 8 0 019.5 4.5a8 8 0 1010 10z"/>',
+    },
+
+    svg(name) {
+        return `<svg class="ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true" focusable="false">${this.paths[name] || ''}</svg>`;
+    },
+
+    /** emoji in the default theme, stroke SVG in Mission Control */
+    icon(name, emoji) {
+        return this.isFui() ? this.svg(name) : emoji;
+    },
+
+    /** Display labels only: uppercase with a slashed zero in Mission Control. Never pass real data. */
+    fui(text) {
+        if (!this.isFui()) return text;
+        const shown = esc(String(text).toUpperCase().replace(/O/g, 'Ø'));
+        return `<span class="fui-label" aria-hidden="true">${shown}</span><span class="sr-only">${esc(text)}</span>`;
+    },
+
+    /** Corner ↗ on a card header, linking to its detail view (Mission Control only) */
+    cardLink(onclick, label) {
+        return this.isFui()
+            ? `<button class="card-corner-link" onclick="${onclick}" aria-label="${esc(label)}" title="${esc(label)}">${this.svg('link')}</button>`
+            : '';
+    },
+
+    /** Swap the static sidebar/topbar emoji for stroke icons, and back */
+    applyStaticIcons() {
+        document.querySelectorAll('[data-icon]').forEach(el => {
+            if (!el.dataset.emoji) el.dataset.emoji = el.textContent.trim();
+            el.innerHTML = this.isFui() ? this.svg(el.dataset.icon) : el.dataset.emoji;
+        });
+        document.querySelectorAll('[data-fui]').forEach(el => {
+            if (el.dataset.text === undefined) el.dataset.text = el.textContent;
+            el.innerHTML = this.fui(el.dataset.text);
+        });
+    },
+};
