@@ -10,7 +10,7 @@ window.ReportsPage = {
     requestId: 0,
 
     PERIODS: [
-        ['1m', 'This month'], ['3m', 'Last 3 months'], ['6m', 'Last 6 months'],
+        ['1m', 'This month'], ['pm', 'Last month'], ['3m', 'Last 3 months'], ['6m', 'Last 6 months'],
         ['12m', 'Last 12 months'], ['ytd', 'This year'], ['ly', 'Last year'],
     ],
 
@@ -19,6 +19,7 @@ window.ReportsPage = {
         const year = +now.slice(0, 4);
         switch (period) {
             case '1m': return { from: now, to: now };
+            case 'pm': return { from: monthAdd(now, -1), to: monthAdd(now, -1) };
             case '3m': return { from: monthAdd(now, -2), to: now };
             case '12m': return { from: monthAdd(now, -11), to: now };
             case 'ytd': return { from: `${year}-01`, to: now };
