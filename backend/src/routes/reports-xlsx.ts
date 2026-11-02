@@ -245,6 +245,7 @@ export interface Pp36Row {
   base_thb: number | null;
   vat_thb: number | null;
   status: string;
+  supply_type: string;
   ready: boolean;
 }
 
@@ -268,7 +269,7 @@ export function pp36Workbook(rows: Pp36Row[], orgName: string, month: string) {
     `ผู้จ่ายเงิน / Payer: ${orgName}`,
     `เดือนที่จ่ายเงิน / Payment month: ${monthLabel(month)}`,
     `กำหนดยื่น / Due: 7 ${pp36Due(month)} (paper) · 15 ${pp36Due(month)} (e-filing) · อัตรา 7% ของจำนวนเงินที่จ่าย`,
-    'ภ.พ.36 ใช้กับค่าบริการ/สิทธิ์จากต่างประเทศที่ใช้ในไทย — ตัดรายการที่เป็นสินค้านำเข้า (เสีย VAT ที่ศุลกากรแล้ว) หรือผู้ขายที่เรียกเก็บ VAT ไทยแล้ว (e-Service) ออกก่อนยื่น',
+    'เฉพาะรายการที่ระบุเป็น "บริการ" — สินค้า (เสีย VAT ที่ศุลกากรแล้ว) ไม่รวม · ตรวจผู้ขายที่เรียกเก็บ VAT ไทยแล้ว (e-Service) ก่อนยื่น',
   ]);
   const labels = [
     'ลำดับ\nNo.', 'วันที่จ่าย\nDate', 'เลขที่เอกสาร\nInvoice no.', 'ผู้รับเงิน (ต่างประเทศ)\nForeign seller', 'ที่อยู่ผู้รับเงิน\nSeller address',
@@ -319,7 +320,7 @@ export function pp36Workbook(rows: Pp36Row[], orgName: string, month: string) {
     ws.getCell(r, 1).font = { bold: true, color: { argb: 'FFB45309' } };
     r++;
     header(ws, r, labels);
-    pending.forEach((x) => put(x, null, x.base_thb == null ? 'THB amount not entered yet' : 'Not reviewed (draft)'));
+    pending.forEach((x) => put(x, null, x.supply_type !== 'service' ? 'Service or goods not set' : x.base_thb == null ? 'THB amount not entered yet' : 'Not reviewed (draft)'));
   }
   return book;
 }

@@ -330,7 +330,13 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal((await fetch(`${base}/reports/vat.xlsx?organization_id=${o1._id}&month=2026-09`, { headers: { Authorization: `Bearer ${b}` } })).status, 403);
   // ภ.พ.36: the Figma USD payment, 7% of the THB amount paid
   await call('PUT', `/expenses/${usd._id}`, a, { status: 'confirmed' });
-  const pp = await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a);
+  let pp = await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a);
+  assert.equal(pp.body[0].ready, false);           // service/goods not set yet
+  assert.equal((await call('PUT', `/expenses/${usd._id}`, a, { supply_type: 'gift' })).status, 400);
+  await call('PUT', `/expenses/${usd._id}`, a, { supply_type: 'goods' });
+  assert.equal((await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a)).body.length, 0);
+  await call('PUT', `/expenses/${usd._id}`, a, { supply_type: 'service' });
+  pp = await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a);
   assert.equal(pp.status, 200);
   assert.deepEqual(pp.body.map((x: { vendor_name: string }) => x.vendor_name), ['Figma']);
   assert.equal(pp.body[0].base_thb, 3625);

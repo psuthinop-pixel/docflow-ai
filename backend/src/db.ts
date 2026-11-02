@@ -90,6 +90,8 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tax_amount_thb DOUBLE PRECISION`,
   `UPDATE expenses SET fx_rate = 1, total_thb = total, subtotal_thb = subtotal, tax_amount_thb = tax_amount
    WHERE currency = 'THB' AND total_thb IS NULL`,
+  // What was bought, for ภ.พ.36: 'service' (reverse-charge VAT applies), 'goods' (VAT paid at customs), '' not set
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supply_type TEXT NOT NULL DEFAULT ''`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

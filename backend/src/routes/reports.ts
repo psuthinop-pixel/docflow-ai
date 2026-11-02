@@ -132,15 +132,16 @@ export function reportsRouter(db: Db): Router {
     })) as VatRow[];
   }
 
-  // ภ.พ.36 (reverse-charge VAT): foreign-currency payments, i.e. services bought from overseas sellers.
+  // ภ.พ.36 (reverse-charge VAT): foreign-currency payments for services. Goods are left out (VAT paid at customs);
+  // receipts not yet marked service or goods are listed as not ready.
   // VAT base is the THB amount actually paid; VAT = 7% of it. Ready = reviewed and converted to THB.
   async function pp36Rows(orgId: string, month: string): Promise<Pp36Row[]> {
     const rows = await all<Row>(
       db,
       `SELECT e.date, e.invoice_number, e.vendor_name, e.vendor_address, e.category, e.notes, e.currency, e.total, e.tax_amount,
-              e.fx_rate, e.total_thb, e.status
+              e.fx_rate, e.total_thb, e.status, e.supply_type
        FROM expenses e
-       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency <> 'THB' AND ${MONTH} = $2
+       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency <> 'THB' AND e.supply_type <> 'goods' AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.vendor_name`,
       [orgId, month],
     );
@@ -150,8 +151,8 @@ export function reportsRouter(db: Db): Router {
         date: x.date, invoice_number: x.invoice_number, vendor_name: x.vendor_name, vendor_address: x.vendor_address,
         description: [x.category, x.notes].filter(Boolean).join(' · '), currency: x.currency,
         amount: money(x.total), foreign_tax: money(x.tax_amount), fx_rate: x.fx_rate == null ? null : Number(x.fx_rate),
-        base_thb: base, vat_thb: base == null ? null : money(base * PP36_RATE), status: x.status,
-        ready: base != null && (x.status === 'confirmed' || x.status === 'approved'),
+        base_thb: base, vat_thb: base == null ? null : money(base * PP36_RATE), status: x.status, supply_type: x.supply_type,
+        ready: base != null && x.supply_type === 'service' && (x.status === 'confirmed' || x.status === 'approved'),
       };
     });
   }
