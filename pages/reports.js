@@ -365,8 +365,9 @@ window.ReportsPage = {
               </select>
               <button class="btn btn-primary btn-sm" id="vatXlsxBtn" onclick="ReportsPage.exportVatXlsx()">⬇ Excel</button>
               <button class="btn btn-ghost btn-sm" id="vatExportBtn" onclick="ReportsPage.exportVat()">CSV</button>
+              <button class="btn btn-secondary btn-sm" id="pp36XlsxBtn" onclick="ReportsPage.exportPp36Xlsx()" title="Reverse-charge VAT on payments to foreign sellers">⬇ ภ.พ.36</button>
             </div>
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">Claimable tax invoices by date with seller branch and totals, then anything that can't be claimed yet.</div>`}
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px">Claimable tax invoices by date with seller branch and totals, then anything that can't be claimed yet. ภ.พ.36: foreign-currency payments that month with 7% VAT to self-assess.</div>`}
           </div>`;
     },
 
@@ -445,6 +446,10 @@ window.ReportsPage = {
 
     exportVatXlsx() {
         return this.withButton('vatXlsxBtn', '⬇ Excel', () => ReportApi.vatXlsx(App.currentCompany, this.vatMonth));
+    },
+
+    exportPp36Xlsx() {
+        return this.withButton('pp36XlsxBtn', '⬇ ภ.พ.36', () => ReportApi.pp36Xlsx(App.currentCompany, this.vatMonth));
     },
 
     async exportVat() {

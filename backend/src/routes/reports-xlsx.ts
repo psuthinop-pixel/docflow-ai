@@ -231,3 +231,96 @@ export function summaryWorkbook(d: Summary, who: string) {
 
   return book;
 }
+
+export interface Pp36Row {
+  date: string | null;
+  invoice_number: string;
+  vendor_name: string;
+  vendor_address: string;
+  description: string;
+  currency: string;
+  amount: number;
+  foreign_tax: number;
+  fx_rate: number | null;
+  base_thb: number | null;
+  vat_thb: number | null;
+  status: string;
+  supply_type: string;
+  ready: boolean;
+}
+
+/** Due date of a ภ.พ.36 for payments made in `month`: the 7th of the next month (15th if filed online). */
+const pp36Due = (month: string) => {
+  const [y, m] = month.split('-').map(Number);
+  return monthLabel(m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`);
+};
+
+export function pp36Workbook(rows: Pp36Row[], orgName: string, month: string) {
+  const book = newBook();
+  const ws = book.addWorksheet('PP36', {
+    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
+  });
+  ws.columns = [
+    { width: 7 }, { width: 12 }, { width: 18 }, { width: 30 }, { width: 30 }, { width: 28 }, { width: 9 },
+    { width: 14 }, { width: 11 }, { width: 16 }, { width: 14 }, { width: 26 },
+  ];
+  let r = title(ws, [
+    'รายละเอียดประกอบแบบ ภ.พ.36 / Reverse-charge VAT on payments to foreign sellers',
+    `ผู้จ่ายเงิน / Payer: ${orgName}`,
+    `เดือนที่จ่ายเงิน / Payment month: ${monthLabel(month)}`,
+    `กำหนดยื่น / Due: 7 ${pp36Due(month)} (paper) · 15 ${pp36Due(month)} (e-filing) · อัตรา 7% ของจำนวนเงินที่จ่าย`,
+    'เฉพาะรายการที่ระบุเป็น "บริการ" — สินค้า (เสีย VAT ที่ศุลกากรแล้ว) ไม่รวม · ตรวจผู้ขายที่เรียกเก็บ VAT ไทยแล้ว (e-Service) ก่อนยื่น',
+  ]);
+  const labels = [
+    'ลำดับ\nNo.', 'วันที่จ่าย\nDate', 'เลขที่เอกสาร\nInvoice no.', 'ผู้รับเงิน (ต่างประเทศ)\nForeign seller', 'ที่อยู่ผู้รับเงิน\nSeller address',
+    'รายการ\nDescription', 'สกุลเงิน\nCurrency', 'จำนวนเงิน\nAmount', 'อัตราแลกเปลี่ยน\nTHB rate', 'จำนวนเงินที่จ่าย (บาท)\nAmount paid (THB)',
+    'ภาษีที่ต้องนำส่ง 7%\nVAT due', 'หมายเหตุ\nNote',
+  ];
+  header(ws, r, labels);
+  ws.views = [{ state: 'frozen', ySplit: r }];
+  const headerRow = r;
+
+  const put = (x: Pp36Row, no: number | null, note: string) => {
+    r++;
+    const row = ws.getRow(r);
+    row.values = [
+      no ?? '', excelDate(x.date) ?? '', text(x.invoice_number), text(x.vendor_name), text(x.vendor_address), text(x.description),
+      x.currency, x.amount, x.fx_rate ?? '', x.base_thb ?? '',
+      no != null ? { formula: `ROUND(J${r}*7%,2)`, result: x.vat_thb ?? 0 } : x.vat_thb ?? '', note,
+    ];
+    row.getCell(2).numFmt = 'dd/mm/yyyy';
+    [8, 10, 11].forEach((c) => { row.getCell(c).numFmt = MONEY; });
+    row.getCell(9).numFmt = '0.0000';
+    if (x.foreign_tax > 0) row.getCell(12).fill = WARN_FILL;
+  };
+  const vatNote = (x: Pp36Row) => (x.foreign_tax > 0 ? `Receipt shows tax ${x.foreign_tax.toFixed(2)} ${x.currency}: check if seller already charged Thai VAT` : '');
+
+  const ready = rows.filter((x) => x.ready);
+  const pending = rows.filter((x) => !x.ready);
+  ready.forEach((x, i) => put(x, i + 1, vatNote(x)));
+  const first = headerRow + 1;
+  const last = r;
+
+  r++;
+  const total = ws.getRow(r);
+  total.getCell(6).value = 'รวม / Total';
+  const sumOf = (col: string, key: 'base_thb' | 'vat_thb') => ({
+    formula: ready.length ? `SUM(${col}${first}:${col}${last})` : '0',
+    result: Math.round(ready.reduce((t, x) => t + (x[key] ?? 0), 0) * 100) / 100,
+  });
+  total.getCell(10).value = sumOf('J', 'base_thb');
+  total.getCell(11).value = sumOf('K', 'vat_thb');
+  total.font = { bold: true };
+  [10, 11].forEach((c) => { total.getCell(c).numFmt = MONEY; total.getCell(c).border = { top: { style: 'thin' }, bottom: { style: 'double' } }; });
+  if (ready.length) ws.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: last, column: labels.length } };
+
+  if (pending.length) {
+    r += 2;
+    ws.getCell(r, 1).value = 'ยังไม่พร้อมยื่น / Not ready: fix these in DocFlow, then download again';
+    ws.getCell(r, 1).font = { bold: true, color: { argb: 'FFB45309' } };
+    r++;
+    header(ws, r, labels);
+    pending.forEach((x) => put(x, null, x.supply_type !== 'service' ? 'Service or goods not set' : x.base_thb == null ? 'THB amount not entered yet' : 'Not reviewed (draft)'));
+  }
+  return book;
+}

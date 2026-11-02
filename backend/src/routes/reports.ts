@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { Db } from '../db.js';
 import { all, one } from '../db.js';
-import { summaryWorkbook, vatWorkbook, type VatRow } from './reports-xlsx.js';
+import { pp36Workbook, summaryWorkbook, vatWorkbook, type Pp36Row, type VatRow } from './reports-xlsx.js';
 import { membershipRole, requireAuth } from '../auth.js';
 
 /*
@@ -14,6 +14,7 @@ import { membershipRole, requireAuth } from '../auth.js';
 const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
 const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$')`;
 const MAX_MONTHS = 36;
+const PP36_RATE = 0.07;
 
 const isMonth = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 const monthsBetween = (from: string, to: string) =>
@@ -131,6 +132,31 @@ export function reportsRouter(db: Db): Router {
     })) as VatRow[];
   }
 
+  // ภ.พ.36 (reverse-charge VAT): foreign-currency payments for services. Goods are left out (VAT paid at customs);
+  // receipts not yet marked service or goods are listed as not ready.
+  // VAT base is the THB amount actually paid; VAT = 7% of it. Ready = reviewed and converted to THB.
+  async function pp36Rows(orgId: string, month: string): Promise<Pp36Row[]> {
+    const rows = await all<Row>(
+      db,
+      `SELECT e.date, e.invoice_number, e.vendor_name, e.vendor_address, e.category, e.notes, e.currency, e.total, e.tax_amount,
+              e.fx_rate, e.total_thb, e.status, e.supply_type
+       FROM expenses e
+       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency <> 'THB' AND e.supply_type <> 'goods' AND ${MONTH} = $2
+       ORDER BY e.date NULLS LAST, e.vendor_name`,
+      [orgId, month],
+    );
+    return rows.map((x) => {
+      const base = x.total_thb == null ? null : money(x.total_thb);
+      return {
+        date: x.date, invoice_number: x.invoice_number, vendor_name: x.vendor_name, vendor_address: x.vendor_address,
+        description: [x.category, x.notes].filter(Boolean).join(' · '), currency: x.currency,
+        amount: money(x.total), foreign_tax: money(x.tax_amount), fx_rate: x.fx_rate == null ? null : Number(x.fx_rate),
+        base_thb: base, vat_thb: base == null ? null : money(base * PP36_RATE), status: x.status, supply_type: x.supply_type,
+        ready: base != null && x.supply_type === 'service' && (x.status === 'confirmed' || x.status === 'approved'),
+      };
+    });
+  }
+
   /** A single property and month, as the VAT report needs. */
   async function vatScope(req: Request) {
     const s = await scope(req.user!.id, req.query.organization_id);
@@ -181,6 +207,21 @@ export function reportsRouter(db: Db): Router {
     const org = await one<{ organization_name: string }>(db, 'SELECT organization_name FROM organizations WHERE id = $1', [v.orgId]);
     const name = org?.organization_name ?? 'Property';
     await sendXlsx(res, `${name} input VAT ${v.month}.xlsx`, vatWorkbook(await vatRows(v.orgId, v.month), name, v.month));
+  });
+
+  // GET /reports/pp36?organization_id=<id>&month=YYYY-MM — payments to foreign sellers for the ภ.พ.36 return
+  r.get('/pp36', async (req, res) => {
+    const v = await vatScope(req);
+    if ('status' in v) return res.status(v.status).json({ detail: v.detail });
+    res.json(await pp36Rows(v.orgId, v.month));
+  });
+
+  r.get('/pp36.xlsx', async (req, res) => {
+    const v = await vatScope(req);
+    if ('status' in v) return res.status(v.status).json({ detail: v.detail });
+    const org = await one<{ organization_name: string }>(db, 'SELECT organization_name FROM organizations WHERE id = $1', [v.orgId]);
+    const name = org?.organization_name ?? 'Property';
+    await sendXlsx(res, `${name} PP36 ${v.month}.xlsx`, pp36Workbook(await pp36Rows(v.orgId, v.month), name, v.month));
   });
 
   return r;

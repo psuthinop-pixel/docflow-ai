@@ -258,6 +258,12 @@ window.ReceiptsPage = {
       ${field('total', '💰 Total Amount (incl. VAT)', r.total ?? '', 'inputmode="decimal" oninput="ReceiptsPage.onFxInput()"')}
       ${field('tax_amount', '🧾 VAT', r.tax_amount ?? '', 'inputmode="decimal"')}
       ${this.renderFx(r)}
+      <div class="ocr-field" id="supplyTypeField" style="${(r.currency || 'THB') === 'THB' ? 'display:none' : ''}" title="For ภ.พ.36: foreign services carry 7% reverse-charge VAT; imported goods pay VAT at customs">
+        <div class="ocr-field-label">📦 Service or goods (ภ.พ.36)</div>
+        <select class="ocr-field-input" data-field="supply_type">
+          ${[['', '— not set —'], ['service', 'Service (ภ.พ.36 applies)'], ['goods', 'Goods (VAT at customs)']].map(([v, l]) => `<option value="${v}" ${v === (r.supply_type || '') ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
       <div class="ocr-field">
         <div class="ocr-field-label">🏷 Category</div>
         <select class="ocr-field-input" data-field="category">
@@ -316,6 +322,8 @@ window.ReceiptsPage = {
   onCurrencyChange(currency) {
     const section = document.getElementById('fxSection');
     if (section) section.style.display = currency === 'THB' ? 'none' : '';
+    const supply = document.getElementById('supplyTypeField');
+    if (supply) supply.style.display = currency === 'THB' ? 'none' : '';
     const label = document.getElementById('fxCurrency');
     if (label) label.textContent = currency;
   },

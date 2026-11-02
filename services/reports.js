@@ -54,6 +54,10 @@ window.ReportApi = {
         return this.download(`/reports/vat.xlsx?${new URLSearchParams({ organization_id: organizationId, month })}`, `input-VAT-${month}.xlsx`);
     },
 
+    pp36Xlsx(organizationId, month) {
+        return this.download(`/reports/pp36.xlsx?${new URLSearchParams({ organization_id: organizationId, month })}`, `PP36-${month}.xlsx`);
+    },
+
     /** Input VAT listing for one property and month */
     vat(organizationId, month) {
         return this.get(`/reports/vat?${new URLSearchParams({ organization_id: organizationId, month })}`);
