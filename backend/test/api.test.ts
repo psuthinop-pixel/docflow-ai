@@ -265,6 +265,20 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.ok(one.body.by_category.some((x: { category: string }) => x.category === 'Uncategorised'));
   const gaps = Object.fromEntries(one.body.vat_not_claimable.map((x: { reason: string; vat: number }) => [x.reason, x.vat]));
   assert.deepEqual(gaps, { fuel: 42, missing_tax_id: 3.27, not_reviewed: 14 });
+  // VAT claim override: pickup fuel marked claimable; an ordinary receipt marked not claimable
+  const list = (await call('GET', `/expenses?organization_id=${o1._id}`, a)).body as { _id: string; vendor_name: string }[];
+  const idOf = (n: string) => list.find((x) => x.vendor_name === n)!._id;
+  assert.equal((await call('PUT', `/expenses/${idOf('PTT Station')}`, a, { vat_claim: 'maybe' })).status, 400);
+  await call('PUT', `/expenses/${idOf('PTT Station')}`, a, { vat_claim: 'yes' });
+  await call('PUT', `/expenses/${idOf('Makro')}`, a, { vat_claim: 'no' });
+  const ov = (await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-10`, a)).body;
+  assert.equal(ov.by_month.find((x: { month: string }) => x.month === '2026-09').vat_claimable, 105 + 35 - 35);
+  assert.deepEqual(Object.fromEntries(ov.vat_not_claimable.map((x: { reason: string; vat: number }) => [x.reason, x.vat])),
+    { excluded: 35, fuel: 7, missing_tax_id: 3.27, not_reviewed: 14 });
+  const ovVat = (await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-09`, a)).body as { vendor_name: string; claimable: boolean }[];
+  assert.equal(ovVat.find((x) => x.vendor_name === 'PTT Station')!.claimable, true);
+  await call('PUT', `/expenses/${idOf('PTT Station')}`, a, { vat_claim: '' });
+  await call('PUT', `/expenses/${idOf('Makro')}`, a, { vat_claim: '' });
   assert.equal(one.body.organizations.length, 1);
   assert.deepEqual(one.body.fx_pending, [{ currency: 'USD', count: 1, total: 100 }]);
   await call('PUT', `/expenses/${usd._id}`, a, { total_thb: 3625 });

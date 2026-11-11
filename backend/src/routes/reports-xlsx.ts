@@ -13,6 +13,7 @@ export interface VatRow {
   status: string;
   claimable: boolean;
   fuel?: boolean;
+  excluded?: boolean;
 }
 
 interface Summary {
@@ -134,7 +135,7 @@ export function vatWorkbook(rows: VatRow[], orgName: string, month: string) {
     ws.getCell(r, 1).font = { bold: true, color: { argb: 'FFB45309' } };
     r++;
     header(ws, r, labels);
-    pending.forEach((x) => put(x, null, x.fuel ? 'Fuel: expense only, VAT not claimable' : x.status === 'draft' ? 'Not reviewed (draft)' : 'Missing seller tax ID'));
+    pending.forEach((x) => put(x, null, x.excluded ? 'Marked not claimable' : x.fuel ? 'Fuel: expense only, VAT not claimable' : x.status === 'draft' ? 'Not reviewed (draft)' : 'Missing seller tax ID'));
   }
 
   return book;
