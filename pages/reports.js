@@ -97,6 +97,7 @@ window.ReportsPage = {
             prevSpend,
             change: prevSpend > 0 ? ((spend - prevSpend) / prevSpend) * 100 : null,
             perMonth: spend / d.range.months,
+            capex: sum(d.by_month, 'capex'),
             records: sum(d.by_month, 'count'),
             fxNote: fxPendingNote(d.fx_pending),
             vat: sum(d.by_month, 'vat_claimable'),
@@ -181,6 +182,7 @@ window.ReportsPage = {
       <div style="${this.loading ? 'opacity:0.55;pointer-events:none;transition:opacity .15s' : ''}">
         <div class="kpi-grid">
           ${this.tile('💰', 'Spend', fmtTHB(s.spend), changeNote, changeColor, 'accent')}
+          ${s.capex ? this.tile('🏗', 'Capex (assets)', fmtTHB(s.capex), 'Not in operating spend', 'var(--text-muted)', 'cyan') : ''}
           ${this.tile('📅', 'Average per month', fmtTHB(s.perMonth), `${s.records} record${s.records === 1 ? '' : 's'} in ${this.data.range.months} month${this.data.range.months === 1 ? '' : 's'}`, 'var(--text-muted)', 'cyan')}
           ${this.tile('🧾', 'Claimable input VAT', fmtTHB(s.vat), gapVat ? `${fmtTHB(gapVat)} more on receipts that can't be claimed yet` : 'Every VAT amount is claimable', gapVat ? 'var(--amber)' : 'var(--green)', 'green')}
           ${this.tile('⏳', 'Needs attention', s.drafts + s.awaiting, `${s.drafts} draft${s.drafts === 1 ? '' : 's'} · ${s.awaiting} awaiting approval`, s.drafts + s.awaiting ? 'var(--amber)' : 'var(--text-muted)', 'amber')}
@@ -331,7 +333,7 @@ window.ReportsPage = {
 
     renderCategories() {
         const totals = {};
-        this.data.by_category.forEach(x => { totals[x.category] = (totals[x.category] || 0) + x.spend; });
+        this.data.by_category.filter(x => x.spend).forEach(x => { totals[x.category] = (totals[x.category] || 0) + x.spend; });
         let rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
         if (!rows.length) return '<div style="padding:12px 0;font-size:0.82rem;color:var(--text-muted)">No spend recorded in this period.</div>';
         if (rows.length > 8) {
@@ -418,15 +420,15 @@ window.ReportsPage = {
         const d = this.data;
         const names = Object.fromEntries(d.organizations.map(o => [o.id, o.organization_name]));
         // Long format (one row per property and month) so it pivots cleanly in Excel
-        const rows = [['Month', 'Property', 'Spend', 'Claimable VAT', 'Records'].map(h => csvCell(h))];
+        const rows = [['Month', 'Property', 'Operating spend', 'Capex', 'Claimable VAT', 'Records'].map(h => csvCell(h))];
         d.by_month.forEach(x => rows.push([
-            csvCell(x.month), csvCell(names[x.organization_id]), csvCell(x.spend, { numeric: true }),
+            csvCell(x.month), csvCell(names[x.organization_id]), csvCell(x.spend, { numeric: true }), csvCell(x.capex || 0, { numeric: true }),
             csvCell(x.vat_claimable, { numeric: true }), csvCell(x.count, { numeric: true }),
         ]));
         rows.push([]);
-        rows.push(['Category', 'Property', 'Spend', 'Records'].map(h => csvCell(h)));
+        rows.push(['Category', 'Property', 'Operating spend', 'Capex', 'Records'].map(h => csvCell(h)));
         d.by_category.forEach(x => rows.push([
-            csvCell(x.category), csvCell(names[x.organization_id]), csvCell(x.spend, { numeric: true }), csvCell(x.count, { numeric: true }),
+            csvCell(x.category), csvCell(names[x.organization_id]), csvCell(x.spend, { numeric: true }), csvCell(x.capex || 0, { numeric: true }), csvCell(x.count, { numeric: true }),
         ]));
         const who = this.scope === 'all' ? 'all-properties' : names[App.currentCompany] || 'property';
         downloadCsv(`${who}_summary_${d.range.from}_to_${d.range.to}.csv`, rows);

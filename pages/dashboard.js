@@ -49,6 +49,7 @@ window.DashboardPage = {
         const missing = (current?.vat_not_claimable || []).find(x => x.reason === 'missing_tax_id') || { count: 0 };
         return {
             spend,
+            capex: sum(current?.by_month, 'capex'),
             lastSpend,
             change: lastSpend > 0 ? ((spend - lastSpend) / lastSpend) * 100 : null,
             thisMonthCount: sum(current?.by_month, 'count'),
@@ -58,7 +59,7 @@ window.DashboardPage = {
             vatCount: sum(current?.by_month, 'vat_claimable_count'),
             vatMissingTaxId: missing.count,
             fxNote: fxPendingNote(current?.fx_pending),
-            categories: (current?.by_category || []).map(x => [x.category, x.spend]),
+            categories: (current?.by_category || []).filter(x => x.spend).map(x => [x.category, x.spend]),
             activity: this.activity || [],
             daily: this.dailySpend(),
             recent: this.recent || [],
@@ -204,7 +205,7 @@ window.DashboardPage = {
       <div class="kpi-grid">
         ${this.kpi({
             color: 'accent', icon: UI.icon('spend', '💰'), label: lbl(`Spend // ${monthShort}`, `Spend in ${monthName}`), value: fmtTHB(s.spend),
-            note: changeNote, noteStyle: changeStyle, status: 'all',
+            note: s.capex ? `${changeNote ? changeNote + ' · ' : ''}+ ${fmtTHB(s.capex)} capex` : changeNote, noteStyle: changeStyle, status: 'all',
         })}
         ${this.kpi({
             color: 'amber', icon: UI.icon('draft', '📝'), label: lbl('Drafts // review', 'Drafts to review'), value: s.drafts,

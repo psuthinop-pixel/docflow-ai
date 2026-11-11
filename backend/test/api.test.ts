@@ -279,6 +279,20 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal(ovVat.find((x) => x.vendor_name === 'PTT Station')!.claimable, true);
   await call('PUT', `/expenses/${idOf('PTT Station')}`, a, { vat_claim: '' });
   await call('PUT', `/expenses/${idOf('Makro')}`, a, { vat_claim: '' });
+  // Capex: category Asset is capex on auto; per-receipt flag overrides either way. VAT stays claimable.
+  const sofa = (await add(o1._id, { status: 'approved', vendor_name: 'IKEA', date: '2026-09-20', total: 10700, tax_amount: 700, vendor_taxid: TAX, category: 'Asset' })).body;
+  assert.equal((await call('PUT', `/expenses/${sofa._id}`, a, { capex: 'maybe' })).status, 400);
+  await call('PUT', `/expenses/${idOf('MEA')}`, a, { capex: 'yes' });
+  let cx = (await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-09`, a)).body;
+  assert.equal(cx.by_month[0].spend, 2297 - 1070);        // operating spend excludes capex
+  assert.equal(cx.by_month[0].capex, 10700 + 1070);
+  assert.equal(cx.by_month[0].vat_claimable, 105 + 700);  // capex VAT is still input VAT
+  assert.equal(cx.by_category.find((x: { category: string }) => x.category === 'Asset').capex, 10700);
+  await call('PUT', `/expenses/${sofa._id}`, a, { capex: 'no' });
+  await call('PUT', `/expenses/${idOf('MEA')}`, a, { capex: '' });
+  cx = (await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-09`, a)).body;
+  assert.equal(cx.by_month[0].capex, 0);
+  assert.equal((await call('DELETE', `/expenses/${sofa._id}`, a)).status < 300, true);
   assert.equal(one.body.organizations.length, 1);
   assert.deepEqual(one.body.fx_pending, [{ currency: 'USD', count: 1, total: 100 }]);
   await call('PUT', `/expenses/${usd._id}`, a, { total_thb: 3625 });

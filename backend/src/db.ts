@@ -94,6 +94,9 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supply_type TEXT NOT NULL DEFAULT ''`,
   // Input VAT override: '' auto (fuel not claimable), 'yes' claimable (e.g. pickup/van fuel), 'no' never claimable
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_claim TEXT NOT NULL DEFAULT ''`,
+  // Capital expenditure: '' auto (category Asset/Capex = capex), 'yes' capex, 'no' operating expense.
+  // Capex is reported apart from operating spend so a big FF&E purchase does not distort the month.
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS capex TEXT NOT NULL DEFAULT ''`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL
