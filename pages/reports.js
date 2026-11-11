@@ -102,6 +102,7 @@ window.ReportsPage = {
             vat: sum(d.by_month, 'vat_claimable'),
             missingTaxId: gap('missing_tax_id'),
             notReviewed: gap('not_reviewed'),
+            fuel: gap('fuel'),
             drafts: status('draft'),
             awaiting: status('confirmed'),
         };
@@ -356,6 +357,7 @@ window.ReportsPage = {
             ${row('Claimable', fmtTHB(s.vat), 'confirmed or approved, with seller tax ID')}
             ${row('Missing seller tax ID', fmtTHB(s.missingTaxId.vat), `${s.missingTaxId.count} record${s.missingTaxId.count === 1 ? '' : 's'}`, s.missingTaxId.vat ? 'var(--amber)' : '')}
             ${row('Still in draft', fmtTHB(s.notReviewed.vat), `${s.notReviewed.count} record${s.notReviewed.count === 1 ? '' : 's'}`, s.notReviewed.vat ? 'var(--amber)' : '')}
+            ${row('Fuel: expense only, VAT not claimable', fmtTHB(s.fuel.vat), `${s.fuel.count} record${s.fuel.count === 1 ? '' : 's'}`, '')}
           </div>
           <div class="no-print" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
             <div style="font-size:0.8rem;font-weight:600;margin-bottom:8px">Input VAT report for your accountant</div>

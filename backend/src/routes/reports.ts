@@ -9,10 +9,13 @@ import { membershipRole, requireAuth } from '../auth.js';
  * - Spend: every record except disabled ones, drafts included, in THB (total_thb), grouped by the
  *   receipt date (falling back to when it was recorded). A foreign-currency receipt is left out until
  *   an owner/admin enters its THB amount; those are reported separately as fx_pending.
- * - Claimable input VAT: THB, confirmed or approved records with VAT > 0 and a 13-digit seller tax ID.
+ * - Claimable input VAT: THB, confirmed or approved records with VAT > 0 and a 13-digit seller tax ID,
+ *   excluding fuel. Fuel VAT is not claimable as input tax (Revenue Code s.82/5), but fuel still counts
+ *   as spend (a deductible expense). Fuel = category or vendor name matching FUEL below.
  */
 const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
-const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$')`;
+const FUEL = `(e.category ~* '(fuel|petrol|gasoline|diesel|น้ำมัน)' OR e.vendor_name ~* '(ปั๊ม|ปตท|บางจาก|เชลล์|เอสโซ่|คาลเท็กซ์|\\mPTT\\M|bangchak|\\mshell\\M|esso|caltex|\\mPT station|petrol|gas station)')`;
+const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$' AND NOT ${FUEL})`;
 const MAX_MONTHS = 36;
 const PP36_RATE = 0.07;
 
@@ -86,7 +89,7 @@ export function reportsRouter(db: Db): Router {
       // VAT that is on a receipt but not (yet) claimable, and why
       all<Row>(
         db,
-        `SELECT CASE WHEN e.status = 'draft' THEN 'not_reviewed' ELSE 'missing_tax_id' END AS reason,
+        `SELECT CASE WHEN ${FUEL} THEN 'fuel' WHEN e.status = 'draft' THEN 'not_reviewed' ELSE 'missing_tax_id' END AS reason,
                 COUNT(*)::int AS count, SUM(e.tax_amount) AS vat
          ${base} AND ${MONTH} BETWEEN $3 AND $4 AND e.currency = 'THB' AND e.tax_amount > 0 AND NOT ${CLAIMABLE}
          GROUP BY 1`,
@@ -118,7 +121,7 @@ export function reportsRouter(db: Db): Router {
     const rows = await all<Row>(
       db,
       `SELECT e.id, e.date, e.invoice_number, e.vendor_name, e.vendor_taxid, e.vendor_branch, e.subtotal, e.tax_amount, e.total,
-              e.status, e.receipt_id, ${CLAIMABLE} AS claimable
+              e.status, e.receipt_id, ${CLAIMABLE} AS claimable, ${FUEL} AS fuel
        FROM expenses e
        WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency = 'THB' AND e.tax_amount > 0 AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.invoice_number`,
