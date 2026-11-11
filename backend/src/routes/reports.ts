@@ -9,6 +9,8 @@ import { membershipRole, requireAuth } from '../auth.js';
  * - Spend: every record except disabled ones, drafts included, in THB (total_thb), grouped by the
  *   receipt date (falling back to when it was recorded). A foreign-currency receipt is left out until
  *   an owner/admin enters its THB amount; those are reported separately as fx_pending.
+ * - Capex: records flagged capex = 'yes', or on auto with an Asset/Capex category. Reported as `capex`
+ *   and left out of `spend` (operating spend). Its input VAT is still claimable.
  * - Claimable input VAT: THB, confirmed or approved records with VAT > 0 and a 13-digit seller tax ID,
  *   excluding fuel unless vat_claim = 'yes' (pickup/van fuel), and never when vat_claim = 'no'.
  *   Fuel VAT is not claimable as input tax (Revenue Code s.82/5), but fuel still counts
@@ -17,6 +19,7 @@ import { membershipRole, requireAuth } from '../auth.js';
 const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
 const FUEL = `(e.category ~* '(fuel|petrol|gasoline|diesel|น้ำมัน)' OR e.vendor_name ~* '(ปั๊ม|ปตท|บางจาก|เชลล์|เอสโซ่|คาลเท็กซ์|\\mPTT\\M|bangchak|\\mshell\\M|esso|caltex|\\mPT station|petrol|gas station)')`;
 const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$' AND e.vat_claim <> 'no' AND (e.vat_claim = 'yes' OR NOT ${FUEL}))`;
+const CAPEX = `(e.capex = 'yes' OR (e.capex = '' AND e.category ~* '^\\s*(assets?|capex|fixed assets?|ทรัพย์สิน|สินทรัพย์)\\s*$'))`;
 const MAX_MONTHS = 36;
 const PP36_RATE = 0.07;
 
@@ -70,7 +73,8 @@ export function reportsRouter(db: Db): Router {
       ),
       all<Row>(
         db,
-        `SELECT e.organization_id, ${MONTH} AS month, COALESCE(SUM(e.total_thb), 0) AS spend, COUNT(*)::int AS count,
+        `SELECT e.organization_id, ${MONTH} AS month, COALESCE(SUM(CASE WHEN NOT ${CAPEX} THEN e.total_thb END), 0) AS spend,
+                COALESCE(SUM(CASE WHEN ${CAPEX} THEN e.total_thb END), 0) AS capex, COUNT(*)::int AS count,
                 SUM(CASE WHEN ${CLAIMABLE} THEN e.tax_amount ELSE 0 END) AS vat_claimable,
                 COUNT(*) FILTER (WHERE ${CLAIMABLE})::int AS vat_claimable_count
          ${base} AND ${MONTH} BETWEEN $3 AND $4
@@ -80,9 +84,10 @@ export function reportsRouter(db: Db): Router {
       all<Row>(
         db,
         `SELECT e.organization_id, COALESCE(NULLIF(e.category, ''), 'Uncategorised') AS category,
-                COALESCE(SUM(e.total_thb), 0) AS spend, COUNT(*)::int AS count
+                COALESCE(SUM(CASE WHEN NOT ${CAPEX} THEN e.total_thb END), 0) AS spend,
+                COALESCE(SUM(CASE WHEN ${CAPEX} THEN e.total_thb END), 0) AS capex, COUNT(*)::int AS count
          ${base} AND ${MONTH} BETWEEN $3 AND $4
-         GROUP BY 1, 2 ORDER BY 3 DESC`,
+         GROUP BY 1, 2 ORDER BY 3 DESC, 4 DESC`,
         ranged,
       ),
       // Work queues are about current state, so they ignore the date range
@@ -109,8 +114,8 @@ export function reportsRouter(db: Db): Router {
     return {
       range: { from, to, months },
       organizations: orgs.map((o) => ({ id: o.id, _id: o.id, organization_name: o.organization_name, color: o.color, role: o.role })),
-      by_month: byMonth.map((x) => ({ organization_id: x.organization_id as string, month: x.month as string, spend: money(x.spend), vat_claimable: money(x.vat_claimable), vat_claimable_count: x.vat_claimable_count as number, count: x.count as number })),
-      by_category: byCategory.map((x) => ({ organization_id: x.organization_id as string, category: x.category as string, spend: money(x.spend), count: x.count as number })),
+      by_month: byMonth.map((x) => ({ organization_id: x.organization_id as string, month: x.month as string, spend: money(x.spend), capex: money(x.capex), vat_claimable: money(x.vat_claimable), vat_claimable_count: x.vat_claimable_count as number, count: x.count as number })),
+      by_category: byCategory.map((x) => ({ organization_id: x.organization_id as string, category: x.category as string, spend: money(x.spend), capex: money(x.capex), count: x.count as number })),
       status_counts: statuses,
       vat_not_claimable: vatGaps.map((x) => ({ reason: x.reason as string, count: x.count as number, vat: money(x.vat) })),
       fx_pending: fxPending.map((x) => ({ currency: x.currency as string, count: x.count as number, total: money(x.total) })),

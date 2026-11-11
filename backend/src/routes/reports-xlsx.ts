@@ -19,8 +19,8 @@ export interface VatRow {
 interface Summary {
   range: { from: string; to: string; months: number };
   organizations: { id: string; organization_name: string }[];
-  by_month: { organization_id: string; month: string; spend: number; vat_claimable: number; count: number }[];
-  by_category: { organization_id: string; category: string; spend: number; count: number }[];
+  by_month: { organization_id: string; month: string; spend: number; capex?: number; vat_claimable: number; count: number }[];
+  by_category: { organization_id: string; category: string; spend: number; capex?: number; count: number }[];
 }
 
 const MONEY = '#,##0.00';
@@ -187,7 +187,7 @@ export function summaryWorkbook(d: Summary, who: string) {
   r = title(byCat, [`Spend by category · ${who}`, period]);
   header(byCat, r, ['Category', ...orgs.map((o) => o.organization_name), 'Total', 'Records']);
   byCat.columns = [{ width: 26 }, ...orgs.map(() => ({ width: 22 })), { width: 18 }, { width: 10 }];
-  const cats = [...new Set(d.by_category.map((x) => x.category))];
+  const cats = [...new Set(d.by_category.filter((x) => x.spend).map((x) => x.category))]; // operating spend only
   const catTotal = (c: string) => d.by_category.filter((x) => x.category === c).reduce((s, x) => s + x.spend, 0);
   cats.sort((a, b) => catTotal(b) - catTotal(a)).forEach((c) => {
     r++;
@@ -220,16 +220,15 @@ export function summaryWorkbook(d: Summary, who: string) {
 
   // Sheet 4: long format for pivot tables
   const data = book.addWorksheet('Data');
-  header(data, 1, ['Month', 'Property', 'Spend', 'Claimable VAT', 'Records']);
-  data.columns = [{ width: 12 }, { width: 28 }, { width: 16 }, { width: 16 }, { width: 10 }];
+  header(data, 1, ['Month', 'Property', 'Operating spend', 'Capex', 'Claimable VAT', 'Records']);
+  data.columns = [{ width: 12 }, { width: 28 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 10 }];
   const names = Object.fromEntries(orgs.map((o) => [o.id, o.organization_name]));
   d.by_month.forEach((x, i) => {
     const row = data.getRow(i + 2);
-    row.values = [x.month, names[x.organization_id], x.spend, x.vat_claimable, x.count];
-    row.getCell(3).numFmt = MONEY;
-    row.getCell(4).numFmt = MONEY;
+    row.values = [x.month, names[x.organization_id], x.spend, x.capex ?? 0, x.vat_claimable, x.count];
+    [3, 4, 5].forEach((c) => { row.getCell(c).numFmt = MONEY; });
   });
-  data.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(d.by_month.length + 1, 1), column: 5 } };
+  data.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(d.by_month.length + 1, 1), column: 6 } };
 
   return book;
 }

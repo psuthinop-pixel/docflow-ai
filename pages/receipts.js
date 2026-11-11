@@ -270,6 +270,12 @@ window.ReceiptsPage = {
           ${[['', 'Auto (fuel = not claimable)'], ['yes', 'Claimable (e.g. pickup / van fuel)'], ['no', 'Not claimable']].map(([v, l]) => `<option value="${v}" ${v === (r.vat_claim || '') ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
       </div>
+      <div class="ocr-field" title="Capex (FF&E, machines, renovation) is reported apart from operating spend. Auto: category Asset = capex.">
+        <div class="ocr-field-label">🏗 Capex (asset)</div>
+        <select class="ocr-field-input" data-field="capex">
+          ${[['', 'Auto (category Asset = capex)'], ['yes', 'Capex: asset purchase'], ['no', 'Operating expense']].map(([v, l]) => `<option value="${v}" ${v === (r.capex || '') ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
       <div class="ocr-field">
         <div class="ocr-field-label">🏷 Category</div>
         <select class="ocr-field-input" data-field="category">

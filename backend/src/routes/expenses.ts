@@ -9,10 +9,11 @@ const APPROVERS = ['owner', 'admin'];
 const EDITABLE = [
   'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'vendor_branch', 'date',
   'total', 'subtotal', 'tax_amount', 'currency', 'category', 'notes', 'invoice_number', 'receipt_id',
-  'fx_rate', 'total_thb', 'fx_rate_date', 'fx_source', 'supply_type', 'vat_claim',
+  'fx_rate', 'total_thb', 'fx_rate_date', 'fx_source', 'supply_type', 'vat_claim', 'capex',
 ] as const;
 const SUPPLY_TYPES = ['', 'service', 'goods'];
 const VAT_CLAIMS = ['', 'yes', 'no'];
+const CAPEX = ['', 'yes', 'no'];
 /** Exchange-rate inputs; only an owner or admin may set them. */
 const FX_INPUTS = ['fx_rate', 'total_thb', 'fx_rate_date', 'fx_source'];
 const FX_SOURCES = ['card_statement', 'bank', 'bot', 'manual'];
@@ -70,6 +71,10 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
       const t = v == null ? '' : String(v);
       if (!VAT_CLAIMS.includes(t)) return 'vat_claim must be yes, no or empty (auto)';
       out.vat_claim = t;
+    } else if (key === 'capex') {
+      const t = v == null ? '' : String(v);
+      if (!CAPEX.includes(t)) return 'capex must be yes, no or empty (auto)';
+      out.capex = t;
     } else if (key === 'status') {
       if (!STATUSES.includes(String(v))) return `status must be one of ${STATUSES.join(', ')}`;
       out.status = String(v);
