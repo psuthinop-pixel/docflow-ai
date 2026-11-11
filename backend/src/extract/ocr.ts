@@ -1,4 +1,4 @@
-// Text extraction: PDF text layer (pdfjs), scanned PDF → images (pdftoppm), images → Tesseract (tha+eng).
+// Text extraction: PDF text layer (pdfjs), scanned PDF → images (pdftoppm, or pdfjs+canvas fallback), images → Tesseract (tha+eng).
 import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -68,8 +68,8 @@ export async function pdfText(buf: Buffer, maxPages = 3): Promise<string> {
   return out.join('\n');
 }
 
-/** Rasterise the first pages of a scanned PDF (requires poppler's pdftoppm). */
-async function pdfToImages(buf: Buffer, maxPages = 2): Promise<Buffer[]> {
+/** Rasterise via poppler's pdftoppm (best quality; available on self-hosted servers). */
+async function pdfToImagesPoppler(buf: Buffer, maxPages: number): Promise<Buffer[]> {
   const dir = mkdtempSync(path.join(tmpdir(), 'docflow-pdf-'));
   try {
     const input = path.join(dir, 'in.pdf');
@@ -77,10 +77,57 @@ async function pdfToImages(buf: Buffer, maxPages = 2): Promise<Buffer[]> {
     // Grayscale: tesseract.js returns nothing for some colour PNGs from pdftoppm.
     await run('pdftoppm', ['-r', '300', '-png', '-gray', '-f', '1', '-l', String(maxPages), input, path.join(dir, 'page')]);
     return readdirSync(dir).filter((f) => f.endsWith('.png')).sort().map((f) => readFileSync(path.join(dir, f)));
-  } catch (err) {
-    throw Object.assign(new Error('Scanned PDF needs poppler (pdftoppm) installed on the server'), { status: 422, cause: err });
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Rasterise in-process with pdfjs + @napi-rs/canvas (no system binaries; works on Vercel). */
+async function pdfToImagesPdfjs(buf: Buffer, maxPages: number): Promise<Buffer[]> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const { createCanvas } = await import('@napi-rs/canvas');
+  // @ts-expect-error -- pdfjs-dist ships no types for the worker entry.
+  (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker ??= await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+  const task = pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true });
+  const doc = await task.promise;
+  const out: Buffer[] = [];
+  try {
+    for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
+      const page = await doc.getPage(p);
+      const viewport = page.getViewport({ scale: 300 / 72 });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.render({ canvas: canvas as any, canvasContext: ctx as any, viewport }).promise;
+      // Grayscale (see poppler note): average RGB in place.
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+        d[i] = d[i + 1] = d[i + 2] = g;
+      }
+      ctx.putImageData(img, 0, 0);
+      out.push(await canvas.encode('png'));
+      page.cleanup();
+    }
+  } finally {
+    await task.destroy();
+  }
+  return out;
+}
+
+/** Rasterise the first pages of a scanned PDF: poppler if installed, else pure-Node pdfjs. */
+async function pdfToImages(buf: Buffer, maxPages = 2): Promise<Buffer[]> {
+  try {
+    return await pdfToImagesPoppler(buf, maxPages);
+  } catch {
+    try {
+      return await pdfToImagesPdfjs(buf, maxPages);
+    } catch (err) {
+      throw Object.assign(new Error('Could not render scanned PDF for OCR — try uploading a photo/screenshot instead'), { status: 422, cause: err });
+    }
   }
 }
 
