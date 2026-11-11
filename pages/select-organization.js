@@ -179,7 +179,7 @@ window.SelectOrganizationPage = {
         currency: currency,
         timezone: timezone,
         color: color,
-        categories: ['Office Supplies', 'Transport', 'Software', 'Meals'] // Default categories
+        categories: ['Office Supplies', 'Transport', 'Software', 'Meals', 'Asset'] // Default categories
       });
 
       App.showToast('success', `✅ Created ${orgName}!`);
