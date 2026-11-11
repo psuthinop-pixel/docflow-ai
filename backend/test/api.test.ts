@@ -244,6 +244,8 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   await add(o1._id, { status: 'approved', vendor_name: 'MEA', date: '2026-09-03', total: 1070, tax_amount: 70, vendor_taxid: TAX, vendor_branch: 'สาขาที่ 12', category: 'Utilities', invoice_number: 'B2' });
   await add(o1._id, { status: 'confirmed', vendor_name: 'Makro', date: '2026-09-01', total: 535, tax_amount: 35, vendor_taxid: TAX, category: 'Supplies', invoice_number: 'A1' });
   await add(o1._id, { status: 'confirmed', vendor_name: 'Toll', date: '2026-09-10', total: 50, tax_amount: 3.27, vendor_taxid: '', category: 'Travel' });
+  await add(o1._id, { status: 'approved', vendor_name: 'PTT Station', date: '2026-09-12', total: 535, tax_amount: 35, vendor_taxid: TAX, category: 'Travel' });
+  await add(o1._id, { status: 'approved', vendor_name: 'Somchai Oil', date: '2026-09-13', total: 107, tax_amount: 7, vendor_taxid: TAX, category: 'ค่าน้ำมัน' });
   await add(o1._id, { status: 'draft', vendor_name: 'Draft', date: '2026-10-02', total: 214, tax_amount: 14, vendor_taxid: TAX, category: '' });
   await add(o1._id, { status: 'disabled', vendor_name: 'Ignored', date: '2026-09-05', total: 9999, tax_amount: 9 });
   await add(o2._id, { status: 'approved', vendor_name: 'HomePro', date: '2026-10-15', total: 2140, tax_amount: 140, vendor_taxid: TAX, category: 'Repairs' });
@@ -254,15 +256,15 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal(one.status, 200);
   assert.deepEqual(one.body.range, { from: '2026-09', to: '2026-10', months: 2 });
   const sep = one.body.by_month.find((x: { month: string }) => x.month === '2026-09');
-  assert.equal(sep.spend, 1655);           // disabled excluded
+  assert.equal(sep.spend, 2297);           // disabled excluded; fuel still counts as spend
   assert.equal(sep.vat_claimable, 105);    // toll has no tax ID
   assert.equal(sep.vat_claimable_count, 2);
-  assert.equal(sep.count, 4);              // includes the USD receipt waiting for its THB amount
+  assert.equal(sep.count, 6);              // includes the USD receipt waiting for its THB amount
   assert.equal(one.body.by_month.find((x: { month: string }) => x.month === '2026-10').spend, 214); // drafts count as spend
   assert.equal(one.body.by_category[0].category, 'Utilities');
   assert.ok(one.body.by_category.some((x: { category: string }) => x.category === 'Uncategorised'));
   const gaps = Object.fromEntries(one.body.vat_not_claimable.map((x: { reason: string; vat: number }) => [x.reason, x.vat]));
-  assert.deepEqual(gaps, { missing_tax_id: 3.27, not_reviewed: 14 });
+  assert.deepEqual(gaps, { fuel: 42, missing_tax_id: 3.27, not_reviewed: 14 });
   assert.equal(one.body.organizations.length, 1);
   assert.deepEqual(one.body.fx_pending, [{ currency: 'USD', count: 1, total: 100 }]);
   await call('PUT', `/expenses/${usd._id}`, a, { total_thb: 3625 });
