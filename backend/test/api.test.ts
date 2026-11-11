@@ -269,7 +269,7 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.deepEqual(one.body.fx_pending, [{ currency: 'USD', count: 1, total: 100 }]);
   await call('PUT', `/expenses/${usd._id}`, a, { total_thb: 3625 });
   const conv = (await call('GET', `/reports/summary?organization_id=${o1._id}&from=2026-09&to=2026-09`, a)).body;
-  assert.equal(conv.by_month[0].spend, 1655 + 3625);
+  assert.equal(conv.by_month[0].spend, 2297 + 3625);
   assert.equal(conv.by_month[0].vat_claimable, 105);
   assert.deepEqual(conv.fx_pending, []);
   await call('PUT', `/expenses/${usd._id}`, a, { status: 'disabled' });
@@ -277,7 +277,7 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   // All properties: both orgs, nothing from orgs the user is not in
   const both = (await call('GET', '/reports/summary?organization_id=all&from=2026-09&to=2026-10', a)).body;
   assert.ok(both.organizations.some((o: { id: string }) => o.id === o2._id));
-  assert.equal(both.by_month.filter((x: { organization_id: string }) => [o1._id, o2._id].includes(x.organization_id)).reduce((t: number, x: { spend: number }) => t + x.spend, 0), 1655 + 214 + 2140);
+  assert.equal(both.by_month.filter((x: { organization_id: string }) => [o1._id, o2._id].includes(x.organization_id)).reduce((t: number, x: { spend: number }) => t + x.spend, 0), 2297 + 214 + 2140);
   const bAll = (await call('GET', '/reports/summary?organization_id=all', b)).body;
   assert.ok(!bAll.organizations.some((o: { id: string }) => o.id === o1._id));
   assert.equal((await call('GET', `/reports/summary?organization_id=${o1._id}`, b)).status, 403);
@@ -292,12 +292,12 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   await new Promise((r) => setTimeout(r, 10));
   await call('PUT', `/expenses/${makro._id}`, a, { notes: 'checked' });
   assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&sort=updated&limit=1`, a)).body[0].vendor_name, 'Makro');
-  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&limit=abc`, a)).body.length, 6);
+  assert.equal((await call('GET', `/expenses?organization_id=${o1._id}&limit=abc`, a)).body.length, 8);
 
   const vat = await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-09`, a);
   assert.equal(vat.status, 200);
-  assert.deepEqual(vat.body.map((x: { vendor_name: string }) => x.vendor_name), ['Makro', 'MEA', 'Toll']);
-  assert.deepEqual(vat.body.map((x: { claimable: boolean }) => x.claimable), [true, true, false]);
+  assert.deepEqual(vat.body.map((x: { vendor_name: string }) => x.vendor_name), ['Makro', 'MEA', 'Toll', 'PTT Station', 'Somchai Oil']);
+  assert.deepEqual(vat.body.map((x: { claimable: boolean }) => x.claimable), [true, true, false, false, false]);
   assert.equal(vat.body[0].subtotal, 500);
   assert.equal(vat.body[1].vendor_branch, '00012');
   assert.equal((await add(o1._id, { vendor_branch: 'Ladprao' })).status, 400);
@@ -322,13 +322,14 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   const totalRow = rows.find((r) => String(r[3]).includes('Total claimable'))!;
   assert.equal((totalRow[7] as { result: number }).result, 105);
   assert.ok(rows.some((r) => r[3] === 'Toll' && r[9] === 'Missing seller tax ID'));
+  assert.ok(rows.some((r) => r[3] === 'PTT Station' && r[9] === 'Fuel: expense only, VAT not claimable'));
   assert.equal((ws.getCell(`B${rows.indexOf(makroRow)}`).value as Date).toISOString().slice(0, 10), '2026-09-01');
 
   const sm = await xl('/reports/summary.xlsx?organization_id=all&from=2026-09&to=2026-10');
   assert.deepEqual(sm.book.worksheets.map((w) => w.name), ['By month', 'By category', 'Input VAT', 'Data']);
   const bm = Array.from(sm.book.getWorksheet('By month')!.getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
   const grand = bm.find((r) => r[0] === 'Total')!;
-  assert.equal((grand[grand.length - 1] as { result: number }).result, 1655 + 214 + 2140);
+  assert.equal((grand[grand.length - 1] as { result: number }).result, 2297 + 214 + 2140);
   assert.equal((await fetch(`${base}/reports/vat.xlsx?organization_id=${o1._id}&month=2026-09`, { headers: { Authorization: `Bearer ${b}` } })).status, 403);
   // ภ.พ.36: the Figma USD payment, 7% of the THB amount paid
   await call('PUT', `/expenses/${usd._id}`, a, { status: 'confirmed' });

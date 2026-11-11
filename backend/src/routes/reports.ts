@@ -121,7 +121,7 @@ export function reportsRouter(db: Db): Router {
     const rows = await all<Row>(
       db,
       `SELECT e.id, e.date, e.invoice_number, e.vendor_name, e.vendor_taxid, e.vendor_branch, e.subtotal, e.tax_amount, e.total,
-              e.status, e.receipt_id, ${CLAIMABLE} AS claimable
+              e.status, e.receipt_id, ${CLAIMABLE} AS claimable, ${FUEL} AS fuel
        FROM expenses e
        WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency = 'THB' AND e.tax_amount > 0 AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.invoice_number`,
