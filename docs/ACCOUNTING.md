@@ -6,8 +6,18 @@ Owner decisions still needed are in [Open decisions](#open-decisions); don't gue
 ## Goal
 Every confirmed or approved expense in DocFlow becomes a correct, balanced journal entry. Each month, the
 owner gets a **monthly management account (MMA) pack** per property, and for the group, without
-re-keying data. DocFlow is the subledger for purchases; the accountant's system stays the general ledger
-of record unless the owner decides otherwise.
+re-keying data.
+
+**Decision (Nov 2026): there is no accounting software yet.** So:
+- DocFlow keeps its **own journal** (double-entry lines generated from expenses) and builds the MMA pack from it.
+  This is management accounting, not the statutory books.
+- The chart of accounts starts from a **standard Thai SME chart (TFRS for NPAEs layout)** seeded per property,
+  which the owner/accountant can rename or extend. Account codes are editable, so a later move to real
+  software is a mapping exercise, not a rebuild.
+- Exports use a **neutral journal format** (.xlsx/CSV: date, document no., account code, account name,
+  debit, credit, property, vendor, tax ID, description). Any accountant can import or key it, and an
+  adapter for specific software (Express, PEAK, FlowAccount, Xero…) can be added once one is chosen.
+- Out of scope for DocFlow: statutory financial statements, ภ.ง.ด.50/51, audit. Those stay with the accountant.
 
 ```
 Receipt ──► Expense (DocFlow) ──► Journal lines ──► (1) Export to accountant's GL
@@ -75,7 +85,7 @@ Every entry must balance; the generator gets a unit test per row of this table.
 - **Budget** per property × category × month for variance columns.
 
 ## Phased build
-- **Phase A: Chart of accounts & mapping.** Import the accountant's CoA; map each category per property →
+- **Phase A: Chart of accounts & mapping.** Seed a standard Thai SME CoA per property (editable codes/names); map each category per property →
   GL account; asset classes → asset/depreciation accounts and useful lives; bank accounts; advance-payable
   sub-accounts per person. UI in Settings. Refuse to post a month with an unmapped category.
 - **Phase B: Journal generator + GL export.** Pure function `expense → journal lines` (the posting rules above),
@@ -89,9 +99,9 @@ Every entry must balance; the generator gets a unit test per row of this table.
   full P&L with variance.
 
 ## Open decisions
-1. Which accounting software does the accountant use (Express, PEAK, FlowAccount, Xero, other)? This decides
-   the export format.
-2. The chart of accounts (account codes) and which account each category maps to.
+1. ~~Accounting software~~: none yet; DocFlow keeps the management journal and exports a neutral format (see Goal).
+   Revisit when the accountant or group size calls for real software; add an import adapter then.
+2. Review the seeded chart of accounts with the accountant, and which account each category maps to.
 3. Accrual (invoice date) or cash (payment date) basis for the management P&L? Recommended: accrual for
    P&L, with a separate cash view.
 4. Capitalisation threshold (e.g. items ≥ ฿5,000 are assets) and useful lives per asset class.

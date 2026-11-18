@@ -23,6 +23,8 @@ properties. Owner/operator is the user; the accountant consumes the exports.
 - `payment_source`: 'company' (direct transfer) or 'advance' (สำรองจ่าย). `reimbursed_at` is owner/admin only.
 - Dates are Western year (dd/mm/yyyy) in exports; seller branch stored as the 5-digit RD code.
 - Approval and FX rates are owner/admin only.
+- No accounting software yet: DocFlow keeps its own management journal on a seeded Thai SME chart of
+  accounts and exports a neutral journal format (see `docs/ACCOUNTING.md` → Goal).
 
 ## Conventions
 - Tests: `cd backend && npm test` (node:test + PGlite; no external DB). Add a test with every rule change.
