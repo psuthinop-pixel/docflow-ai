@@ -624,3 +624,72 @@ test('accounting phase C: close a month, lock its receipts, owner-only reopen, a
   assert.equal(log.find((x) => x.action === 'reopen')!.detail.reason, 'Supplier sent a corrected invoice');
   assert.equal((await call('GET', `/accounting/audit?organization_id=nope`, a)).status, 403);
 });
+
+test('accounting phase D: monthly pack per property and for the group, Excel, commentary gate', async () => {
+  const a = await login('a@test.com');
+  const mk = async (name: string) => {
+    const org = (await call('POST', '/organizations', a, { organization_name: name, categories: ['Office Supplies', 'Asset'] })).body;
+    await call('GET', `/accounting/accounts?organization_id=${org._id}`, a);
+    await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [
+      { category: 'Office Supplies', account_code: '6140' }, { category: 'Asset', account_code: '1230' },
+    ] });
+    return org;
+  };
+  const p1 = await mk('Pack One');
+  const p2 = await mk('Pack Two');
+  const add = (org: string, f: Record<string, unknown>) => call('POST', '/expenses', a, {
+    organization_id: org, currency: 'THB', status: 'approved', category: 'Office Supplies', vendor_taxid: '0107537000521',
+    payment_source: 'company', ...f,
+  });
+  await add(p1._id, { vendor_name: 'Makro', date: '2026-08-04', total: 2140, tax_amount: 140 });
+  await add(p1._id, { vendor_name: 'Makro', date: '2026-09-04', total: 1070, tax_amount: 70 });
+  await add(p1._id, { vendor_name: 'IKEA', date: '2026-09-18', category: 'Asset', total: 10700, tax_amount: 700 });
+  await add(p2._id, { vendor_name: 'HomePro', date: '2026-09-09', total: 535, tax_amount: 35, payment_source: 'advance', paid_by: 'Lek' });
+
+  const one = await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-09`, a);
+  assert.equal(one.status, 200);
+  assert.equal(one.body.status, 'provisional');
+  assert.deepEqual([one.body.summary.opex, one.body.summary.opex_prev, one.body.summary.opex_change_pct], [1000, 2000, -50]);
+  assert.equal(one.body.summary.capex, 10000);
+  assert.equal(one.body.summary.capex_ytd, 10000);
+  assert.equal(one.body.summary.input_vat, 770);
+  assert.equal(typeof one.body.commentary_available, 'boolean');
+
+  // Closing makes it final
+  await call('POST', '/accounting/periods/close', a, { organization_id: p1._id, month: '2026-09' });
+  assert.equal((await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-09`, a)).body.status, 'closed');
+
+  // Group: every property the user belongs to (earlier tests' properties included)
+  const group = (await call('GET', '/accounting/mma?organization_id=all&month=2026-09', a)).body;
+  const mine = group.by_property.filter((x: { id: string }) => [p1._id, p2._id].includes(x.id));
+  assert.deepEqual(mine.map((x: { name: string; opex: number; advances_outstanding: number }) => [x.name, x.opex, x.advances_outstanding]),
+    [['Pack One', 1000, 0], ['Pack Two', 500, 535]]);
+  assert.equal(group.status, 'provisional');
+
+  // Excel
+  const res = await fetch(`${base}/accounting/mma.xlsx?organization_id=${p1._id}&month=2026-09`, { headers: { Authorization: `Bearer ${a}` } });
+  assert.equal(res.status, 200);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+  assert.deepEqual(book.worksheets.map((w) => w.name), ['Summary', 'Operating costs', 'Capex', 'Advances', 'VAT', 'Cash']);
+  assert.equal(book.getWorksheet('Summary')!.getCell('B6').value, 1000);
+  const gres = await fetch(`${base}/accounting/mma.xlsx?organization_id=all&month=2026-09`, { headers: { Authorization: `Bearer ${a}` } });
+  const gbook = new ExcelJS.Workbook();
+  await gbook.xlsx.load(Buffer.from(await gres.arrayBuffer()) as unknown as ArrayBuffer);
+  assert.ok(gbook.getWorksheet('By property'));
+
+  // Commentary: needs Claude configured on the server; validation first
+  const saved = [process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_AUTH_TOKEN];
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  try {
+    assert.equal((await call('POST', '/accounting/mma/commentary', a, { organization_id: p1._id, month: 'x' })).status, 400);
+    assert.equal((await call('POST', '/accounting/mma/commentary', a, { organization_id: p1._id, month: '2026-09' })).status, 503);
+  } finally {
+    if (saved[0] !== undefined) process.env.ANTHROPIC_API_KEY = saved[0];
+    if (saved[1] !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = saved[1];
+  }
+  assert.equal((await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-13`, a)).status, 400);
+  const c = await login('c@test.com');
+  assert.equal((await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-09`, c)).status, 403);
+});

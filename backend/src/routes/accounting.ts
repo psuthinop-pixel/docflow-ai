@@ -9,6 +9,7 @@ import { CAPEX, CLAIMABLE, MONTH } from './reports.js';
 import { expenseEntry, PostingError, reimbursementEntry, round2, trialBalance, type AccountRef, type JournalEntry, type PostingContext, type PostingExpense } from '../accounting/journal.js';
 import { journalWorkbook } from '../accounting/journal-xlsx.js';
 import { audit } from '../accounting/periods.js';
+import { mountMma } from './mma.js';
 
 const EDITORS = ['owner', 'admin'];
 
@@ -448,6 +449,8 @@ export function accountingRouter(db: Db): Router {
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition'); // the app is on another origin
     res.send(buf);
   });
+
+  mountMma(r, db, { access, journal });
 
   return r;
 }

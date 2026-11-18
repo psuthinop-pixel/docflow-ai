@@ -102,7 +102,13 @@ Every entry must balance; the generator gets a unit test per row of this table.
   except recording a reimbursement dated in an open month. Reopen: owner only, reason required, journal regenerated.
   Audit log: receipt create/update (field-level from → to)/delete, mapping changes, close/reopen.
   Original plan: **Phase C: Month-end close.** Close checklist, period lock, audit log, re-export after reopen.
-- **Phase D: MMA pack.** `GET /reports/mma?organization_id=<id|all>&month` + Excel/PDF with the 7 sections
+- ✅ **Phase D: MMA pack** (`backend/src/accounting/mma.ts`, `commentary.ts`, `mma-xlsx.ts`, `routes/mma.ts`; page
+  *Management accounts*). Built from the month's journal (closed = frozen snapshot, final; open = provisional).
+  Commentary: Claude (structured output, EN/TH) gets the pack JSON only; every number > 10 in its text must match a pack
+  figure within ฿0.51, else one retry, then offending sentences are dropped and counted. Cached per month/language
+  with a hash of the figures, flagged stale when they change. Not yet: P&L lines that need revenue (Phase E), depreciation
+  (asset register), budget variance.
+  Original plan: **Phase D: MMA pack.** `GET /reports/mma?organization_id=<id|all>&month` + Excel/PDF with the 7 sections
   above. Claude writes a short owner commentary (variances, risks, cash timing) from the numbers. It
   never invents figures; every number in the text must come from the pack data.
 - **Phase E: Revenue & budget inputs.** Revenue import (PMS/bank CSV) and a budget sheet, so the pack is a

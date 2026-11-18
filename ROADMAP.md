@@ -78,7 +78,7 @@ Design and posting rules: [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md).
 - [x] A: Chart of accounts (Thai SME seed, editable) + category → account mapping per property, default bank and capex accounts, month readiness check (`/accounting/*`, Settings → Chart of accounts)
 - [x] B: Journal generator (expense → balanced lines, reimbursements) + neutral Excel journal & trial balance (`/accounting/journal[.xlsx]`); depreciation, WHT and AP still to come
 - [x] C: Month-end close: readiness checklist, close (owner/admin) freezes the journal and locks the month's receipts, owner-only reopen with a reason, audit log (`/accounting/periods*`, `/accounting/audit`)
-- [ ] D: MMA pack per property + consolidated (P&L, opex, capex register, advances, VAT, cash), with Claude commentary drawn only from the numbers
+- [x] D: MMA pack per property + consolidated (costs vs last month / last year, top vendors, capex + YTD, advances at month end, VAT, cash by week, close checklist), Excel + print, Claude commentary (EN/TH) number-checked against the pack (`/accounting/mma*`, page *Management accounts*)
 - [ ] E: Revenue import + budgets, for a full P&L with variance
 
 ## Phase 4 — Hardening
