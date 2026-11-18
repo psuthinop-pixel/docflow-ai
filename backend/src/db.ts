@@ -159,6 +159,17 @@ const SCHEMA = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log(organization_id, created_at)`,
+  // Claude's owner commentary on a monthly pack; reused while the pack's figures (pack_hash) are unchanged
+  `CREATE TABLE IF NOT EXISTS mma_commentary (
+    scope_key TEXT NOT NULL,
+    month TEXT NOT NULL,
+    language TEXT NOT NULL,
+    pack_hash TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (scope_key, month, language)
+  )`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

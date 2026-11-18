@@ -17,7 +17,7 @@ import { membershipRole, requireAuth } from '../auth.js';
  *   as spend (a deductible expense). Fuel = category or vendor name matching FUEL below.
  */
 export const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
-const FUEL = `(e.category ~* '(fuel|petrol|gasoline|diesel|น้ำมัน)' OR e.vendor_name ~* '(ปั๊ม|ปตท|บางจาก|เชลล์|เอสโซ่|คาลเท็กซ์|\\mPTT\\M|bangchak|\\mshell\\M|esso|caltex|\\mPT station|petrol|gas station)')`;
+export const FUEL = `(e.category ~* '(fuel|petrol|gasoline|diesel|น้ำมัน)' OR e.vendor_name ~* '(ปั๊ม|ปตท|บางจาก|เชลล์|เอสโซ่|คาลเท็กซ์|\\mPTT\\M|bangchak|\\mshell\\M|esso|caltex|\\mPT station|petrol|gas station)')`;
 export const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$' AND e.vat_claim <> 'no' AND (e.vat_claim = 'yes' OR NOT ${FUEL}))`;
 export const CAPEX = `(e.capex = 'yes' OR (e.capex = '' AND e.category ~* '^\\s*(assets?|capex|fixed assets?|ทรัพย์สิน|สินทรัพย์)\\s*$'))`;
 const MAX_MONTHS = 36;

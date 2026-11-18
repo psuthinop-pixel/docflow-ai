@@ -27,6 +27,10 @@ window.AccountingApi = {
     audit(orgId, month) {
         return this.request('GET', `/audit?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },
+    mma(orgId, month) {
+        return this.request('GET', `/mma?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
+    },
+    mmaCommentary(orgId, month, language) { return this.request('POST', '/mma/commentary', { organization_id: orgId, month, language }); },
     readiness(orgId, month) {
         return this.request('GET', `/readiness?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },

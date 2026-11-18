@@ -175,6 +175,7 @@ window.App = {
             drive: 'Google Drive',
             sheets: 'Google Sheets',
             reports: 'Reports',
+            mma: 'Management accounts',
             settings: 'Settings',
         };
         const title = titles[page] || titles.dashboard;
@@ -190,6 +191,7 @@ window.App = {
             drive: () => DrivePage.render(this.currentCompany),
             sheets: () => SheetsPage.render(this.currentCompany),
             reports: () => ReportsPage.render(this.currentCompany),
+            mma: () => MmaPage.render(this.currentCompany),
             settings: () => SettingsPage.render(this.currentCompany),
         };
 
@@ -414,6 +416,7 @@ window.Pages = {
     email: () => App.navigate('email'),
     sheets: () => App.navigate('sheets'),
     reports: () => App.navigate('reports'),
+    mma: () => App.navigate('mma'),
     line: () => App.navigate('line'),
     drive: () => App.navigate('drive'),
     settings: () => App.navigate('settings'),
@@ -516,6 +519,7 @@ window.UI = {
         dashboard: '<rect x="3.5" y="3.5" width="7" height="9"/><rect x="13.5" y="3.5" width="7" height="5"/><rect x="13.5" y="11.5" width="7" height="9"/><rect x="3.5" y="15.5" width="7" height="5"/>',
         receipts: '<path d="M5.5 3.5h13v17l-2.2-1.5-2.1 1.5-2.2-1.5-2.1 1.5-2.2-1.5-2.2 1.5z"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/>',
         reports: '<path d="M3.5 20.5h17"/><path d="M5.5 16l4.5-5 3.5 3 5.5-7"/><path d="M15 7h4v4"/>',
+        ledger: '<rect x="4.5" y="3.5" width="15" height="17"/><path d="M8 3.5v17"/><path d="M11 8h5.5M11 11.5h5.5M11 15h3.5"/>',
         mail: '<rect x="3.5" y="5.5" width="17" height="13"/><path d="M3.5 6.5l8.5 7 8.5-7"/>',
         chat: '<path d="M4.5 5.5h15v10h-8l-4 3.5v-3.5h-3z"/>',
         folder: '<path d="M3.5 6.5h6l2 2h9v10h-17z"/>',
