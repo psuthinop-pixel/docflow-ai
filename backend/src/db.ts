@@ -103,6 +103,36 @@ const SCHEMA = [
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_source TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reimbursed_at TEXT`,
+  // Bookkeeping (docs/ACCOUNTING.md). Chart of accounts per property, seeded from accounting/coa.ts.
+  `CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_th TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    life_years INTEGER,
+    contra_code TEXT,
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TEXT NOT NULL,
+    UNIQUE (organization_id, code)
+  )`,
+  // Which account each expense category posts to (owner/accountant confirmed; suggestions are never saved)
+  `CREATE TABLE IF NOT EXISTS category_accounts (
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    category TEXT NOT NULL,
+    account_code TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (organization_id, category)
+  )`,
+  // Default credit account for company payments, and the asset account for capex in a non-asset category
+  `CREATE TABLE IF NOT EXISTS accounting_settings (
+    organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+    bank_code TEXT NOT NULL,
+    capex_code TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

@@ -85,7 +85,7 @@ Every entry must balance; the generator gets a unit test per row of this table.
 - **Budget** per property × category × month for variance columns.
 
 ## Phased build
-- **Phase A: Chart of accounts & mapping.** Seed a standard Thai SME CoA per property (editable codes/names); map each category per property →
+- ✅ **Phase A: Chart of accounts & mapping** (`backend/src/routes/accounting.ts`, `backend/src/accounting/coa.ts`, Settings → 📒 Chart of accounts). Seed a standard Thai SME CoA per property (editable codes/names); map each category per property →
   GL account; asset classes → asset/depreciation accounts and useful lives; bank accounts; advance-payable
   sub-accounts per person. UI in Settings. Refuse to post a month with an unmapped category.
 - **Phase B: Journal generator + GL export.** Pure function `expense → journal lines` (the posting rules above),

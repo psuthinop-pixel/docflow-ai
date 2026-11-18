@@ -8,6 +8,7 @@ import { receiptsRouter, type ReceiptOptions } from './routes/receipts.js';
 import { systemRouter } from './routes/system.js';
 import { membersRouter } from './routes/members.js';
 import { reportsRouter } from './routes/reports.js';
+import { accountingRouter } from './routes/accounting.js';
 import multer from 'multer';
 
 const defaultReceipts: ReceiptOptions = { maxUploadMb: 10, ocrEngine: 'auto' };
@@ -25,6 +26,7 @@ export function createApp(db: Db, corsOrigins: string[] = [], receipts: ReceiptO
   app.use('/receipts', receiptsRouter(db, receipts));
   app.use('/system', systemRouter(db, receipts));
   app.use('/reports', reportsRouter(db));
+  app.use('/accounting', accountingRouter(db));
 
   app.use((_req, res) => res.status(404).json({ detail: 'Not found' }));
   app.use((err: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
