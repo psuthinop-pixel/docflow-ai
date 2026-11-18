@@ -72,5 +72,14 @@ Goal: the features that already work end to end run against a real backend.
 3. Google Drive auto-filing
 4. Two-way Google Sheets / Airtable sync
 
+## Phase 3b — Bookkeeping & monthly management accounts (next)
+Design and posting rules: [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md).
+- [x] Inputs on each expense: VAT claim override (fuel), capex flag, payment source (company / advance), reimbursement date
+- [ ] A: Chart of accounts + category → GL mapping per property, asset classes, bank and advance-payable accounts
+- [ ] B: Journal generator (expense → balanced lines) + export in the accountant's import format
+- [ ] C: Month-end close: checklist, period lock, audit log
+- [ ] D: MMA pack per property + consolidated (P&L, opex, capex register, advances, VAT, cash), with Claude commentary drawn only from the numbers
+- [ ] E: Revenue import + budgets, for a full P&L with variance
+
 ## Phase 4 — Hardening
 - Role permissions, audit log, accountant export, CI, backups and monitoring
