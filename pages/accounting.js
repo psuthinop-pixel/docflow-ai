@@ -34,7 +34,7 @@ window.AccountingSection = {
         this.error = null;
         try {
             const [accounts, mapping, readiness] = await Promise.all([
-                AccountingApi.accounts(orgId), AccountingApi.mapping(orgId), AccountingApi.readiness(orgId, this.month),
+                AccountingApi.accounts(orgId), AccountingApi.mapping(orgId), AccountingApi.journal(orgId, this.month),
             ]);
             if (orgId !== this.orgId) return;
             Object.assign(this, { accounts, mapping, readiness, loadedAt: Date.now() });
@@ -118,10 +118,15 @@ window.AccountingSection = {
             <strong>${r.ready ? '✅' : '⏳'} ${esc(r.month)} ${r.ready ? 'is ready to post' : 'is not ready to post yet'}</strong>
             <span style="font-size:0.8rem;color:var(--text-secondary)">${r.posted} confirmed receipt${r.posted === 1 ? '' : 's'}</span>
             <input type="month" class="form-input" style="max-width:170px;margin-left:auto" value="${esc(this.month)}" onchange="AccountingSection.setMonth(this.value)" aria-label="Month to check">
+            <button class="btn ${r.ready ? 'btn-primary' : 'btn-secondary'} btn-sm" id="journalBtn" ${r.ready && r.posted ? '' : 'disabled'}
+              title="${r.ready ? 'General journal and trial balance for this month' : 'Fix the items below first'}"
+              onclick="AccountingSection.downloadJournal()">⬇ Journal (Excel)</button>
           </div>
           ${r.blockers.length || r.warnings.length ? `<ul style="margin:6px 0 0 18px;font-size:0.82rem">
             ${r.blockers.map(x => item(x, 'var(--red)')).join('')}${r.warnings.map(x => item(x, 'var(--amber)')).join('')}
+            ${(r.errors || []).slice(0, 10).map(x => `<li style="color:var(--red)">${esc(x.vendor_name || 'Receipt')}: ${esc(x.message)}</li>`).join('')}
           </ul>` : ''}
+          ${r.ready && r.entries ? `<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:6px">${r.entries.length} journal entr${r.entries.length === 1 ? 'y' : 'ies'} · Dr ${fmtTHB(r.totals.debit)} = Cr ${fmtTHB(r.totals.credit)}</div>` : ''}
         </div>`;
     },
 
@@ -149,11 +154,25 @@ window.AccountingSection = {
         if (!/^\d{4}-\d{2}$/.test(month)) return;
         this.month = month;
         try {
-            this.readiness = await AccountingApi.readiness(this.orgId, month);
+            this.readiness = await AccountingApi.journal(this.orgId, month);
         } catch (error) {
             App.showToast('error', error.message);
         }
         this.refresh();
+    },
+
+    async downloadJournal() {
+        const btn = document.getElementById('journalBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing...'; }
+        try {
+            await ReportApi.download(
+                `/accounting/journal.xlsx?${new URLSearchParams({ organization_id: this.orgId, month: this.month })}`,
+                `journal-${this.month}.xlsx`,
+            );
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '⬇ Journal (Excel)'; }
     },
 
     async save() {
@@ -169,7 +188,7 @@ window.AccountingSection = {
                 bank_code: document.getElementById('acctBank')?.value,
                 capex_code: document.getElementById('acctCapex')?.value,
             });
-            this.readiness = await AccountingApi.readiness(this.orgId, this.month);
+            this.readiness = await AccountingApi.journal(this.orgId, this.month);
             App.showToast('success', '✅ Mapping saved');
         } catch (error) {
             App.showToast('error', error.message);

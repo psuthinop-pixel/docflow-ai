@@ -490,3 +490,63 @@ test('accounting phase A: seeded chart, category mapping, month readiness', asyn
   await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Transport', account_code: null }] });
   assert.equal((await ready()).ready, false);
 });
+
+test('accounting phase B: month journal preview, blockers, reimbursements, Excel export', async () => {
+  const a = await login('a@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Journal Hotel', categories: ['Office Supplies', 'Transport'] })).body;
+  const q = `organization_id=${org._id}&month=2026-11`;
+  const add = (f: Record<string, unknown>) => call('POST', '/expenses', a, {
+    organization_id: org._id, currency: 'THB', status: 'confirmed', date: '2026-11-05', vendor_taxid: '0107537000521', ...f,
+  });
+  await call('GET', `/accounting/accounts?organization_id=${org._id}`, a); // seed
+  await add({ vendor_name: 'Makro', invoice_number: 'M1', category: 'Office Supplies', total: 1070, tax_amount: 70, payment_source: 'company' });
+  const fuel = (await add({ vendor_name: 'PTT Station', category: 'Transport', total: 535, tax_amount: 35, payment_source: 'advance', paid_by: 'Lek' })).body;
+
+  // Unmapped: preview works, not ready, export refused
+  let j = (await call('GET', `/accounting/journal?${q}`, a)).body;
+  assert.equal(j.ready, false);
+  assert.ok(j.blockers.some((b: { code: string }) => b.code === 'unmapped_categories'));
+  assert.equal(j.errors.length, 2);
+  const res409 = await fetch(`${base}/accounting/journal.xlsx?${q}`, { headers: { Authorization: `Bearer ${a}` } });
+  assert.equal(res409.status, 409);
+
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [
+    { category: 'Office Supplies', account_code: '6140' }, { category: 'Transport', account_code: '6150' },
+  ] });
+  j = (await call('GET', `/accounting/journal?${q}`, a)).body;
+  assert.equal(j.ready, true);
+  assert.deepEqual(j.errors, []);
+  assert.equal(j.entries.length, 2);
+  assert.equal(j.entries[0].entry_no, 'JV-202611-0001');
+  assert.deepEqual(j.totals, { debit: 1605, credit: 1605, balanced: true });
+  const tb = Object.fromEntries(j.trial_balance.map((x: { account_code: string; debit: number; credit: number }) => [x.account_code, [x.debit, x.credit]]));
+  assert.deepEqual(tb, { '1112': [0, 1070], '1150': [70, 0], '2120': [0, 535], '6140': [1000, 0], '6150': [535, 0] }); // fuel VAT stays in cost
+
+  // Reimbursed in December: the December journal clears the advance, November is unchanged
+  await call('PUT', `/expenses/${fuel._id}`, a, { reimbursed_at: '2026-12-03' });
+  const dec = (await call('GET', `/accounting/journal?organization_id=${org._id}&month=2026-12`, a)).body;
+  assert.equal(dec.entries.length, 1);
+  assert.equal(dec.entries[0].kind, 'reimbursement');
+  assert.deepEqual(dec.entries[0].lines.map((l: { account_code: string; debit: number; credit: number }) => [l.account_code, l.debit, l.credit]), [['2120', 535, 0], ['1112', 0, 535]]);
+  assert.equal((await call('GET', `/accounting/journal?${q}`, a)).body.entries.length, 2);
+
+  // Excel: journal lines and trial balance read back
+  const res = await fetch(`${base}/accounting/journal.xlsx?${q}`, { headers: { Authorization: `Bearer ${a}` } });
+  assert.equal(res.status, 200);
+  assert.match(decodeURIComponent(res.headers.get('content-disposition') ?? ''), /Journal Hotel journal 2026-11\.xlsx/);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+  assert.deepEqual(book.worksheets.map((w) => w.name), ['Journal', 'Trial balance']);
+  const rows = Array.from(book.getWorksheet('Journal')!.getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
+  const body = rows.filter((r) => String(r[1] ?? '').startsWith('JV-'));
+  assert.equal(body.length, 5);
+  assert.deepEqual(body.map((r) => r[3]), ['6140', '1150', '1112', '6150', '2120']);
+  const total = rows.find((r) => r[4] === 'Total')!;
+  assert.equal((total[5] as { result: number }).result, 1605);
+  assert.equal((total[6] as { result: number }).result, 1605);
+
+  // Members can read; non-members can't
+  assert.equal((await call('GET', `/accounting/journal?organization_id=${org._id}&month=bad`, a)).status, 400);
+  const c = await login('c@test.com');
+  assert.equal((await call('GET', `/accounting/journal?${q}`, c)).status, 403);
+});

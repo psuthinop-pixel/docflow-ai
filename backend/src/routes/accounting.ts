@@ -5,9 +5,14 @@ import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
 import { ACCOUNT_TYPES, DEFAULT_BANK_CODE, DEFAULT_CAPEX_CODE, SEED_ACCOUNTS, suggestAccount, type AccountType } from '../accounting/coa.js';
-import { CAPEX, MONTH } from './reports.js';
+import { CAPEX, CLAIMABLE, MONTH } from './reports.js';
+import { expenseEntry, PostingError, reimbursementEntry, round2, trialBalance, type AccountRef, type JournalEntry, type PostingContext, type PostingExpense } from '../accounting/journal.js';
+import { journalWorkbook } from '../accounting/journal-xlsx.js';
 
 const EDITORS = ['owner', 'admin'];
+
+interface Issue { code: string; message: string; count: number; categories?: string[] }
+export interface Readiness { organization_id: string; month: string; posted: number; ready: boolean; blockers: Issue[]; warnings: Issue[] }
 const POSTED = `e.status IN ('confirmed', 'approved')`;
 
 export interface Account {
@@ -212,13 +217,9 @@ export function accountingRouter(db: Db): Router {
   });
 
   // GET /accounting/readiness?organization_id=<id>&month=YYYY-MM: can this month be posted to the journal?
-  r.get('/readiness', async (req, res) => {
-    const a = await access(req.user!.id, req.query.organization_id);
-    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
-    if (!isMonth(req.query.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
-    const month = req.query.month;
+  async function readiness(orgId: string, month: string): Promise<Readiness> {
     const inMonth = `FROM expenses e WHERE e.organization_id = $1 AND ${MONTH} = $2`;
-    const args = [a.orgId, month];
+    const args = [orgId, month];
 
     const [counts] = await all<Record<string, number>>(
       db,
@@ -227,7 +228,8 @@ export function accountingRouter(db: Db): Router {
               COUNT(*) FILTER (WHERE ${POSTED} AND e.category = '')::int AS uncategorised,
               COUNT(*) FILTER (WHERE ${POSTED} AND e.total_thb IS NULL)::int AS fx_pending,
               COUNT(*) FILTER (WHERE ${POSTED} AND e.payment_source = '')::int AS payment_unset,
-              COUNT(*) FILTER (WHERE ${POSTED} AND e.payment_source = 'advance' AND e.paid_by = '')::int AS advance_no_person
+              COUNT(*) FILTER (WHERE ${POSTED} AND e.payment_source = 'advance' AND e.paid_by = '')::int AS advance_no_person,
+              COUNT(*) FILTER (WHERE ${POSTED} AND e.currency <> 'THB' AND e.supply_type = '')::int AS foreign_type_unset
        ${inMonth}`,
       args,
     );
@@ -249,8 +251,8 @@ export function accountingRouter(db: Db): Router {
       args,
     );
 
-    const blockers: { code: string; message: string; count: number; categories?: string[] }[] = [];
-    const warnings: { code: string; message: string; count: number }[] = [];
+    const blockers: Issue[] = [];
+    const warnings: Issue[] = [];
     if (counts.drafts) blockers.push({ code: 'drafts', message: 'Receipts still in draft: review and confirm, or disable them', count: counts.drafts });
     if (unmapped.length) {
       blockers.push({
@@ -262,9 +264,101 @@ export function accountingRouter(db: Db): Router {
     if (counts.fx_pending) blockers.push({ code: 'fx_pending', message: 'Foreign-currency receipts waiting for their THB amount', count: counts.fx_pending });
     if (counts.payment_unset) warnings.push({ code: 'payment_unset', message: '"Paid from" not set: will post as company bank payments', count: counts.payment_unset });
     if (counts.advance_no_person) warnings.push({ code: 'advance_no_person', message: 'Advances without "Paid by": owed to an unknown person', count: counts.advance_no_person });
+    if (counts.foreign_type_unset) warnings.push({ code: 'foreign_type_unset', message: 'Foreign receipts without "Service or goods": posted with no ภ.พ.36', count: counts.foreign_type_unset });
     if (capexToDefault?.n) warnings.push({ code: 'capex_default_account', message: 'Capex in a non-asset category: will post to the default capex account', count: capexToDefault.n });
 
-    res.json({ organization_id: a.orgId, month, posted: counts.posted, ready: blockers.length === 0, blockers, warnings });
+    return { organization_id: orgId, month, posted: counts.posted, ready: blockers.length === 0, blockers, warnings };
+  }
+
+  r.get('/readiness', async (req, res) => {
+    const a = await access(req.user!.id, req.query.organization_id);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    if (!isMonth(req.query.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
+    res.json(await readiness(a.orgId, req.query.month));
+  });
+
+  /** The month's journal: one entry per posted expense dated in the month, plus advances reimbursed in the month. */
+  async function journal(orgId: string, month: string) {
+    const [accts, maps, settings] = await Promise.all([
+      accounts(orgId),
+      all<{ category: string; account_code: string }>(db, 'SELECT category, account_code FROM category_accounts WHERE organization_id = $1', [orgId]),
+      one<{ bank_code: string; capex_code: string }>(db, 'SELECT bank_code, capex_code FROM accounting_settings WHERE organization_id = $1', [orgId]),
+    ]);
+    const byCode = new Map<string, AccountRef>(accts.map((x) => [x.code, x]));
+    const ctx: PostingContext = {
+      accounts: byCode,
+      categoryAccount: new Map(maps.map((m) => [m.category, m.account_code])),
+      bankCode: settings!.bank_code,
+      capexCode: settings!.capex_code,
+      roleCode: (role) => accts.find((x) => x.role === role && x.active)?.code,
+    };
+    const cols = `e.id, substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 10) AS date, e.invoice_number, e.vendor_name,
+      e.vendor_taxid, e.category, e.notes, e.currency, e.total_thb, e.tax_amount, e.supply_type, e.payment_source, e.paid_by,
+      e.reimbursed_at, ${CLAIMABLE} AS claimable, ${CAPEX} AS capex, e.created_at`;
+    const toPosting = (x: Record<string, any>): PostingExpense => ({
+      ...x, total_thb: Number(x.total_thb), tax_amount: Number(x.tax_amount), claimable: Boolean(x.claimable), capex: Boolean(x.capex),
+    } as PostingExpense);
+    const [expenses, reimbursed] = await Promise.all([
+      all<Record<string, any>>(db, `SELECT ${cols} FROM expenses e
+        WHERE e.organization_id = $1 AND ${POSTED} AND ${MONTH} = $2 AND e.total_thb IS NOT NULL
+        ORDER BY 2, e.created_at`, [orgId, month]),
+      all<Record<string, any>>(db, `SELECT ${cols} FROM expenses e
+        WHERE e.organization_id = $1 AND ${POSTED} AND e.payment_source = 'advance' AND e.total_thb IS NOT NULL
+          AND substr(e.reimbursed_at, 1, 7) = $2
+        ORDER BY e.reimbursed_at, e.created_at`, [orgId, month]),
+    ]);
+
+    const entries: JournalEntry[] = [];
+    const errors: { expense_id: string; vendor_name: string; message: string }[] = [];
+    const tryPost = (x: Record<string, any>, make: typeof expenseEntry) => {
+      try {
+        entries.push(make(toPosting(x), ctx));
+      } catch (err) {
+        if (!(err instanceof PostingError)) throw err;
+        errors.push({ expense_id: x.id, vendor_name: x.vendor_name, message: err.message });
+      }
+    };
+    expenses.forEach((x) => tryPost(x, expenseEntry));
+    reimbursed.forEach((x) => tryPost(x, reimbursementEntry));
+    entries.sort((p, q) => p.date.localeCompare(q.date) || (p.kind === q.kind ? 0 : p.kind === 'expense' ? -1 : 1));
+    const numbered = entries.map((x, i) => ({ entry_no: `JV-${month.replace('-', '')}-${String(i + 1).padStart(4, '0')}`, ...x }));
+
+    const ready = await readiness(orgId, month);
+    if (errors.length) {
+      ready.blockers.push({ code: 'cannot_post', message: 'Receipts that cannot be posted (see errors)', count: errors.length });
+      ready.ready = false;
+    }
+    const tb = trialBalance(entries);
+    const debit = round2(tb.reduce((t, x) => t + x.debit, 0));
+    const credit = round2(tb.reduce((t, x) => t + x.credit, 0));
+    return { ...ready, entries: numbered, errors, trial_balance: tb, totals: { debit, credit, balanced: debit === credit } };
+  }
+
+  // GET /accounting/journal?organization_id=<id>&month=YYYY-MM: preview, always available
+  r.get('/journal', async (req, res) => {
+    const a = await access(req.user!.id, req.query.organization_id);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    if (!isMonth(req.query.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
+    res.json(await journal(a.orgId, req.query.month));
+  });
+
+  // GET /accounting/journal.xlsx?organization_id=<id>&month=YYYY-MM: only when the month is ready
+  r.get('/journal.xlsx', async (req, res) => {
+    const a = await access(req.user!.id, req.query.organization_id);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    if (!isMonth(req.query.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
+    const j = await journal(a.orgId, req.query.month);
+    if (!j.ready) {
+      return res.status(409).json({ detail: `${j.month} isn't ready to post: ${j.blockers.map((b) => b.message).join('; ')}`, blockers: j.blockers });
+    }
+    const org = await one<{ organization_name: string }>(db, 'SELECT organization_name FROM organizations WHERE id = $1', [a.orgId]);
+    const name = org?.organization_name ?? 'Property';
+    const book = journalWorkbook(j.entries, j.trial_balance, name, j.month);
+    const buf = Buffer.from(await book.xlsx.writeBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${name} journal ${j.month}.xlsx`)}`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition'); // the app is on another origin
+    res.send(buf);
   });
 
   return r;

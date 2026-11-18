@@ -88,7 +88,12 @@ Every entry must balance; the generator gets a unit test per row of this table.
 - ✅ **Phase A: Chart of accounts & mapping** (`backend/src/routes/accounting.ts`, `backend/src/accounting/coa.ts`, Settings → 📒 Chart of accounts). Seed a standard Thai SME CoA per property (editable codes/names); map each category per property →
   GL account; asset classes → asset/depreciation accounts and useful lives; bank accounts; advance-payable
   sub-accounts per person. UI in Settings. Refuse to post a month with an unmapped category.
-- **Phase B: Journal generator + GL export.** Pure function `expense → journal lines` (the posting rules above),
+- ✅ **Phase B: Journal generator + export** (`backend/src/accounting/journal.ts`, `journal-xlsx.ts`;
+  `GET /accounting/journal` preview, `GET /accounting/journal.xlsx` only when the month is ready; Settings → Chart of
+  accounts → ⬇ Journal). Built: every row of the posting table except depreciation (needs the asset register),
+  withholding tax and accounts payable (fields not captured yet). Entry numbers `JV-YYYYMM-NNNN` are assigned by
+  date when the journal is generated, so they can shift until Phase C locks the month.
+  Original plan: **Phase B: Journal generator + GL export.** Pure function `expense → journal lines` (the posting rules above),
   `GET /accounting/journal?organization_id&month` (+ .xlsx), in the import format of the accountant's software.
   Reimbursements generate their own entries on `reimbursed_at`.
 - **Phase C: Month-end close.** Close checklist, period lock, audit log, re-export after reopen.
@@ -104,7 +109,7 @@ Every entry must balance; the generator gets a unit test per row of this table.
 2. Review the seeded chart of accounts with the accountant, and which account each category maps to.
 3. Accrual (invoice date) or cash (payment date) basis for the management P&L? Recommended: accrual for
    P&L, with a separate cash view.
-4. Capitalisation threshold (e.g. items ≥ ฿5,000 are assets) and useful lives per asset class.
-5. Are advances by the owner/director booked as เจ้าหนี้กรรมการ (director loan) rather than an employee advance?
+4. Capitalisation threshold: **default for now = none**, the capex flag alone decides. Useful lives are seeded per asset class (editable).
+5. Advances by the owner/director: **default for now = 2120 Advances payable** with the person in the line memo. Switch to 2130 Loan from director per person if the accountant prefers.
 6. Source of revenue data per property.
 7. Fiscal year end, and when the MMA pack is due each month (e.g. working day 5).

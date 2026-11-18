@@ -19,6 +19,9 @@ window.AccountingApi = {
     updateAccount(id, fields) { return this.request('PUT', `/accounts/${encodeURIComponent(id)}`, fields); },
     mapping(orgId) { return this.request('GET', `/mapping?organization_id=${encodeURIComponent(orgId)}`); },
     saveMapping(orgId, body) { return this.request('PUT', '/mapping', { organization_id: orgId, ...body }); },
+    journal(orgId, month) {
+        return this.request('GET', `/journal?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
+    },
     readiness(orgId, month) {
         return this.request('GET', `/readiness?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },
