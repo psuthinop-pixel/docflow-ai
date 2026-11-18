@@ -379,3 +379,34 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal((await call('GET', '/reports/vat?organization_id=all&month=2026-09', a)).status, 400);
   assert.equal((await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-13`, a)).status, 400);
 });
+
+test('payment source: company vs employee advance, reimbursement by owner/admin only', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Advances Hotel' })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+  const add = (t: string, f: Record<string, unknown>) =>
+    call('POST', '/expenses', t, { organization_id: org._id, currency: 'THB', status: 'confirmed', date: '2026-11-02', ...f });
+
+  assert.equal((await add(a, { total: 1, payment_source: 'cash' })).status, 400);
+  await add(a, { vendor_name: 'HomePro', total: 5000, payment_source: 'company' });
+  const lek = (await add(c, { vendor_name: 'Makro', total: 1200, payment_source: 'advance', paid_by: 'Lek' })).body;
+  await add(c, { vendor_name: '7-Eleven', total: 300, payment_source: 'advance', paid_by: 'Lek' });
+  await add(a, { vendor_name: 'Grab', total: 250, payment_source: 'advance', paid_by: 'Kenn' });
+
+  const owed = async () => (await call('GET', `/reports/summary?organization_id=${org._id}&from=2026-11&to=2026-11`, a)).body.advances_pending
+    .map((x: { paid_by: string; count: number; total: number }) => [x.paid_by, x.count, x.total]);
+  assert.deepEqual(await owed(), [['Lek', 2, 1500], ['Kenn', 1, 250]]);
+
+  // A member can't mark their own advance reimbursed; an owner can
+  assert.equal((await call('PUT', `/expenses/${lek._id}`, c, { reimbursed_at: '2026-11-15' })).status, 403);
+  assert.equal((await call('PUT', `/expenses/${lek._id}`, a, { payment_source: 'company', reimbursed_at: '2026-11-15' })).status, 400);
+  const paid = await call('PUT', `/expenses/${lek._id}`, a, { reimbursed_at: '2026-11-15' });
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.reimbursed_at, '2026-11-15');
+  assert.deepEqual(await owed(), [['Lek', 1, 300], ['Kenn', 1, 250]]);
+  // Still counts as spend either way
+  const sum = (await call('GET', `/reports/summary?organization_id=${org._id}&from=2026-11&to=2026-11`, a)).body;
+  assert.equal(sum.by_month[0].spend, 6750);
+});

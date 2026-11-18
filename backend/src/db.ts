@@ -97,6 +97,12 @@ const SCHEMA = [
   // Capital expenditure: '' auto (category Asset/Capex = capex), 'yes' capex, 'no' operating expense.
   // Capex is reported apart from operating spend so a big FF&E purchase does not distort the month.
   `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS capex TEXT NOT NULL DEFAULT ''`,
+  // How it was paid: 'company' (direct transfer from the company account), 'advance' (someone paid
+  // out of pocket and is owed a reimbursement), '' not set. paid_by names who advanced it;
+  // reimbursed_at (YYYY-MM-DD) is set by an owner/admin when the advance is paid back.
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_source TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reimbursed_at TEXT`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

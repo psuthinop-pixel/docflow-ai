@@ -270,6 +270,18 @@ window.ReceiptsPage = {
           ${[['', 'Auto (fuel = not claimable)'], ['yes', 'Claimable (e.g. pickup / van fuel)'], ['no', 'Not claimable']].map(([v, l]) => `<option value="${v}" ${v === (r.vat_claim || '') ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
       </div>
+      <div class="ocr-field" title="Company account: paid by direct transfer. Employee advance: someone paid out of pocket and must be reimbursed.">
+        <div class="ocr-field-label">💳 Paid from</div>
+        <select class="ocr-field-input" data-field="payment_source" onchange="ReceiptsPage.onPaymentSource(this.value)">
+          ${[['', '— not set —'], ['company', 'Company account (direct transfer)'], ['advance', 'Employee advance (to reimburse)']].map(([v, l]) => `<option value="${v}" ${v === (r.payment_source || '') ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
+      <div id="advanceSection" style="${r.payment_source === 'advance' ? '' : 'display:none'}">
+        ${field('paid_by', '🙋 Paid by (to reimburse)', r.paid_by || '', 'placeholder="Who paid out of pocket"')}
+        ${this.canApprove()
+          ? `<div class="ocr-field"><div class="ocr-field-label">✅ Reimbursed on</div><input class="ocr-field-input" data-reimb="1" type="date" value="${esc(r.reimbursed_at || '')}" title="Leave blank until the advance is paid back"></div>`
+          : `<div style="font-size:0.8rem;color:var(--amber);margin:4px 0 8px">${r.reimbursed_at ? `✅ Reimbursed on ${esc(r.reimbursed_at)}` : '⏳ Waiting for an owner/admin to reimburse'}</div>`}
+      </div>
       <div class="ocr-field" title="Capex (FF&E, machines, renovation) is reported apart from operating spend. Auto: category Asset = capex.">
         <div class="ocr-field-label">🏗 Capex (asset)</div>
         <select class="ocr-field-input" data-field="capex">
@@ -312,6 +324,13 @@ window.ReceiptsPage = {
   },
 
   /** Exchange-rate inputs for foreign-currency receipts; owners/admins enter the THB charged on the card statement. */
+  onPaymentSource(v) {
+    const s = document.getElementById('advanceSection');
+    if (s) s.style.display = v === 'advance' ? '' : 'none';
+    const by = document.querySelector('.ocr-panel [data-field="paid_by"]');
+    if (v === 'advance' && by && !by.value) by.value = App.currentUser?.name || '';
+  },
+
   renderFx(r) {
     const currency = r.currency || 'THB';
     const show = currency !== 'THB' ? '' : 'display:none';
@@ -494,6 +513,10 @@ window.ReceiptsPage = {
       tax_amount: amount(values.tax_amount),
       currency: values.currency || 'THB',
       ...this.fxPayload(r, values.currency || 'THB'),
+      ...(values.payment_source !== 'advance' ? { paid_by: '' } : {}),
+      ...(this.canApprove() && document.querySelector('.ocr-panel [data-reimb]')
+        ? { reimbursed_at: values.payment_source === 'advance' ? (document.querySelector('.ocr-panel [data-reimb]').value || null) : null }
+        : {}),
       status: isDisabled ? 'disabled' : (status || (r.status === 'approved' ? 'approved' : 'confirmed')),
     };
 
