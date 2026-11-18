@@ -215,8 +215,28 @@ window.ReportsPage = {
           </div>
         </div>
 
+        ${this.renderAdvances(multi)}
         ${multi ? this.renderComparison() : ''}
       </div>`;
+    },
+
+    // Out-of-pocket advances still owed back, per person (current state, not limited to the period)
+    renderAdvances(multi) {
+        const rows = this.data.advances_pending || [];
+        if (!rows.length) return '';
+        const names = Object.fromEntries(this.data.organizations.map(o => [o.id, o.organization_name]));
+        const total = rows.reduce((t, x) => t + x.total, 0);
+        return `
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header"><div>
+            <div class="card-title">🙋 Advances to reimburse</div>
+            <div class="card-subtitle">${fmtTHB(total)} owed to staff who paid out of pocket · all periods</div>
+          </div></div>
+          <table class="table" style="width:100%;font-size:0.85rem">
+            <thead><tr><th style="text-align:left">Paid by</th>${multi ? '<th style="text-align:left">Property</th>' : ''}<th style="text-align:right">Receipts</th><th style="text-align:right">Owed</th><th style="text-align:right">Oldest</th></tr></thead>
+            <tbody>${rows.map(x => `<tr><td>${esc(x.paid_by)}</td>${multi ? `<td>${esc(names[x.organization_id] || '')}</td>` : ''}<td style="text-align:right">${x.count}</td><td style="text-align:right">${fmtTHB(x.total)}</td><td style="text-align:right">${esc(x.oldest_month || '')}</td></tr>`).join('')}</tbody>
+          </table>
+        </div>`;
     },
 
     tile(icon, label, value, note, noteColor, color) {

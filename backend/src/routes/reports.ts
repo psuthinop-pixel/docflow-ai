@@ -16,10 +16,10 @@ import { membershipRole, requireAuth } from '../auth.js';
  *   Fuel VAT is not claimable as input tax (Revenue Code s.82/5), but fuel still counts
  *   as spend (a deductible expense). Fuel = category or vendor name matching FUEL below.
  */
-const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
+export const MONTH = `substr(COALESCE(NULLIF(e.date, ''), e.created_at), 1, 7)`;
 const FUEL = `(e.category ~* '(fuel|petrol|gasoline|diesel|น้ำมัน)' OR e.vendor_name ~* '(ปั๊ม|ปตท|บางจาก|เชลล์|เอสโซ่|คาลเท็กซ์|\\mPTT\\M|bangchak|\\mshell\\M|esso|caltex|\\mPT station|petrol|gas station)')`;
 const CLAIMABLE = `(e.currency = 'THB' AND e.status IN ('confirmed', 'approved') AND e.tax_amount > 0 AND e.vendor_taxid ~ '^[0-9]{13}$' AND e.vat_claim <> 'no' AND (e.vat_claim = 'yes' OR NOT ${FUEL}))`;
-const CAPEX = `(e.capex = 'yes' OR (e.capex = '' AND e.category ~* '^\\s*(assets?|capex|fixed assets?|ทรัพย์สิน|สินทรัพย์)\\s*$'))`;
+export const CAPEX = `(e.capex = 'yes' OR (e.capex = '' AND e.category ~* '^\\s*(assets?|capex|fixed assets?|ทรัพย์สิน|สินทรัพย์)\\s*$'))`;
 const MAX_MONTHS = 36;
 const PP36_RATE = 0.07;
 
@@ -63,7 +63,7 @@ export function reportsRouter(db: Db): Router {
     const params = [userId, orgId];
     const ranged = [...params, from, to];
 
-    const [orgs, byMonth, byCategory, statuses, vatGaps, fxPending] = await Promise.all([
+    const [orgs, byMonth, byCategory, statuses, vatGaps, fxPending, advances] = await Promise.all([
       all<{ id: string; organization_name: string; color: string | null; role: string }>(
         db,
         `SELECT o.id, o.organization_name, o.color, m.role FROM organizations o
@@ -109,6 +109,15 @@ export function reportsRouter(db: Db): Router {
          GROUP BY 1 ORDER BY 1`,
         ranged,
       ),
+      // Advances still owed back to whoever paid, per person (current state, like the work queues)
+      all<Row>(
+        db,
+        `SELECT e.organization_id, COALESCE(NULLIF(e.paid_by, ''), 'Unknown') AS paid_by, COUNT(*)::int AS count,
+                COALESCE(SUM(e.total_thb), 0) AS total, MIN(${MONTH}) AS oldest_month
+         ${base} AND e.payment_source = 'advance' AND e.reimbursed_at IS NULL
+         GROUP BY 1, 2 ORDER BY 4 DESC`,
+        params,
+      ),
     ]);
 
     return {
@@ -118,6 +127,7 @@ export function reportsRouter(db: Db): Router {
       by_category: byCategory.map((x) => ({ organization_id: x.organization_id as string, category: x.category as string, spend: money(x.spend), capex: money(x.capex), count: x.count as number })),
       status_counts: statuses,
       vat_not_claimable: vatGaps.map((x) => ({ reason: x.reason as string, count: x.count as number, vat: money(x.vat) })),
+      advances_pending: advances.map((x) => ({ organization_id: x.organization_id as string, paid_by: x.paid_by as string, count: x.count as number, total: money(x.total), oldest_month: x.oldest_month as string })),
       fx_pending: fxPending.map((x) => ({ currency: x.currency as string, count: x.count as number, total: money(x.total) })),
     };
   }

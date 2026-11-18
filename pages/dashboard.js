@@ -50,6 +50,8 @@ window.DashboardPage = {
         return {
             spend,
             capex: sum(current?.by_month, 'capex'),
+            advances: sum(current?.advances_pending, 'total'),
+            advanceCount: sum(current?.advances_pending, 'count'),
             lastSpend,
             change: lastSpend > 0 ? ((spend - lastSpend) / lastSpend) * 100 : null,
             thisMonthCount: sum(current?.by_month, 'count'),
@@ -221,6 +223,10 @@ window.DashboardPage = {
             color: 'green', icon: UI.icon('vat', '🧾'), label: lbl(`Input VAT // ${monthShort}`, 'Input VAT this month'), value: fmtTHB(s.vat),
             note: vatNote, noteStyle: s.vatMissingTaxId ? 'color:var(--amber)' : 'color:var(--green)', status: 'all',
         })}
+        ${s.advanceCount ? this.kpi({
+            color: 'amber', icon: UI.icon('clock', '🙋'), label: lbl('Advances // owed', 'Advances to reimburse'), value: fmtTHB(s.advances),
+            note: `${s.advanceCount} receipt${s.advanceCount === 1 ? '' : 's'} paid out of pocket`, noteStyle: 'color:var(--amber)', status: 'all',
+        }) : ''}
       </div>
       ${F ? this.renderDailyChart(s.daily, monthShort.toUpperCase()) : ''}
 

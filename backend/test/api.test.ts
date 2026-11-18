@@ -379,3 +379,114 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal((await call('GET', '/reports/vat?organization_id=all&month=2026-09', a)).status, 400);
   assert.equal((await call('GET', `/reports/vat?organization_id=${o1._id}&month=2026-13`, a)).status, 400);
 });
+
+test('payment source: company vs employee advance, reimbursement by owner/admin only', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Advances Hotel' })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+  const add = (t: string, f: Record<string, unknown>) =>
+    call('POST', '/expenses', t, { organization_id: org._id, currency: 'THB', status: 'confirmed', date: '2026-11-02', ...f });
+
+  assert.equal((await add(a, { total: 1, payment_source: 'cash' })).status, 400);
+  await add(a, { vendor_name: 'HomePro', total: 5000, payment_source: 'company' });
+  const lek = (await add(c, { vendor_name: 'Makro', total: 1200, payment_source: 'advance', paid_by: 'Lek' })).body;
+  await add(c, { vendor_name: '7-Eleven', total: 300, payment_source: 'advance', paid_by: 'Lek' });
+  await add(a, { vendor_name: 'Grab', total: 250, payment_source: 'advance', paid_by: 'Kenn' });
+
+  const owed = async () => (await call('GET', `/reports/summary?organization_id=${org._id}&from=2026-11&to=2026-11`, a)).body.advances_pending
+    .map((x: { paid_by: string; count: number; total: number }) => [x.paid_by, x.count, x.total]);
+  assert.deepEqual(await owed(), [['Lek', 2, 1500], ['Kenn', 1, 250]]);
+
+  // A member can't mark their own advance reimbursed; an owner can
+  assert.equal((await call('PUT', `/expenses/${lek._id}`, c, { reimbursed_at: '2026-11-15' })).status, 403);
+  assert.equal((await call('PUT', `/expenses/${lek._id}`, a, { payment_source: 'company', reimbursed_at: '2026-11-15' })).status, 400);
+  const paid = await call('PUT', `/expenses/${lek._id}`, a, { reimbursed_at: '2026-11-15' });
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.reimbursed_at, '2026-11-15');
+  assert.deepEqual(await owed(), [['Lek', 1, 300], ['Kenn', 1, 250]]);
+  // Still counts as spend either way
+  const sum = (await call('GET', `/reports/summary?organization_id=${org._id}&from=2026-11&to=2026-11`, a)).body;
+  assert.equal(sum.by_month[0].spend, 6750);
+});
+
+test('accounting phase A: seeded chart, category mapping, month readiness', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Books Hotel', categories: ['Office Supplies', 'Transport', 'Asset', 'Mystery'] })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+  const q = `organization_id=${org._id}`;
+
+  // Seeded once, readable by members
+  const accts = (await call('GET', `/accounting/accounts?${q}`, c)).body as { id: string; code: string; role: string; type: string }[];
+  assert.ok(accts.length > 40);
+  assert.equal(accts.find((x) => x.code === '1150')!.role, 'input_vat');
+  assert.equal(accts.find((x) => x.code === '2120')!.role, 'advances_payable');
+  assert.equal((await call('GET', `/accounting/accounts?${q}`, a)).body.length, accts.length); // not re-seeded
+  assert.equal((await call('GET', `/accounting/accounts?organization_id=nope`, a)).status, 403);
+
+  // Only owner/admin edit; codes unique; role accounts can't be deactivated
+  assert.equal((await call('POST', '/accounting/accounts', c, { organization_id: org._id, code: '6240', name: 'Pest control', type: 'expense' })).status, 403);
+  const pest = await call('POST', '/accounting/accounts', a, { organization_id: org._id, code: '6240', name: 'Pest control', name_th: 'ค่ากำจัดแมลง', type: 'expense' });
+  assert.equal(pest.status, 201);
+  assert.equal((await call('POST', '/accounting/accounts', a, { organization_id: org._id, code: '6240', name: 'Dup', type: 'expense' })).status, 409);
+  assert.equal((await call('POST', '/accounting/accounts', a, { organization_id: org._id, code: '7000', name: 'X', type: 'cost' })).status, 400);
+  const inputVat = accts.find((x) => x.code === '1150')!;
+  assert.equal((await call('PUT', `/accounting/accounts/${inputVat.id}`, a, { active: false })).status, 400);
+
+  // Mapping: suggestions shown but not saved
+  let map = (await call('GET', `/accounting/mapping?${q}`, a)).body;
+  const row = (cat: string) => map.categories.find((x: { category: string }) => x.category === cat);
+  assert.equal(row('Office Supplies').suggested_code, '6140');
+  assert.equal(row('Office Supplies').account_code, null);
+  assert.equal(row('Asset').suggested_code, '1230');
+  assert.equal(row('Mystery').suggested_code, null);
+  assert.deepEqual(map.settings, { bank_code: '1112', capex_code: '1230' });
+
+  assert.equal((await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Transport', account_code: '1150' }] })).status, 400); // not an expense account
+  assert.equal((await call('PUT', '/accounting/mapping', a, { organization_id: org._id, bank_code: '6140' })).status, 400);
+  assert.equal((await call('PUT', '/accounting/mapping', c, { organization_id: org._id, mappings: [] })).status, 403);
+
+  // Readiness for a month
+  const add = (f: Record<string, unknown>) => call('POST', '/expenses', a, { organization_id: org._id, currency: 'THB', status: 'confirmed', date: '2026-11-05', total: 107, tax_amount: 7, ...f });
+  await add({ category: 'Office Supplies', payment_source: 'company' });
+  await add({ category: 'Transport', payment_source: 'advance' });
+  await add({ category: 'Office Supplies', capex: 'yes', payment_source: 'company' });
+  await add({ category: 'Transport', status: 'draft' });
+  await add({ category: '', payment_source: 'company' });
+  const ready = async () => (await call('GET', `/accounting/readiness?${q}&month=2026-11`, c)).body;
+  let r = await ready();
+  assert.equal(r.ready, false);
+  assert.equal(r.posted, 4);
+  const codes = (list: { code: string }[]) => list.map((x) => x.code).sort();
+  assert.deepEqual(codes(r.blockers), ['drafts', 'uncategorised', 'unmapped_categories']);
+  assert.deepEqual(r.blockers.find((x: { code: string }) => x.code === 'unmapped_categories').categories.sort(), ['Office Supplies', 'Transport']);
+  assert.deepEqual(codes(r.warnings), ['advance_no_person', 'capex_default_account']);
+  assert.equal((await call('GET', `/accounting/readiness?${q}&month=2026-13`, a)).status, 400);
+
+  // Map, then rename an account code: the mapping follows
+  map = (await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [
+    { category: 'Office Supplies', account_code: '6140' }, { category: 'Transport', account_code: '6150' }, { category: 'Asset', account_code: '1230' },
+  ], bank_code: '1113' })).body;
+  assert.equal(row('Transport').account_code, '6150');
+  assert.equal(map.settings.bank_code, '1113');
+  const travel = accts.find((x) => x.code === '6150')!;
+  assert.equal((await call('PUT', `/accounting/accounts/${travel.id}`, a, { code: '6151' })).status, 200);
+  map = (await call('GET', `/accounting/mapping?${q}`, a)).body;
+  assert.equal(row('Transport').account_code, '6151');
+
+  // Resolve the blockers
+  const list = (await call('GET', `/expenses?organization_id=${org._id}`, a)).body as { _id: string; status: string; category: string }[];
+  for (const e of list) {
+    if (e.status === 'draft') await call('PUT', `/expenses/${e._id}`, a, { status: 'disabled' });
+    else if (!e.category) await call('PUT', `/expenses/${e._id}`, a, { category: 'Office Supplies' });
+  }
+  r = await ready();
+  assert.equal(r.ready, true);
+  assert.deepEqual(r.blockers, []);
+  // Unmapping makes it not ready again
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Transport', account_code: null }] });
+  assert.equal((await ready()).ready, false);
+});

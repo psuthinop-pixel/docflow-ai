@@ -35,6 +35,8 @@ window.SettingsPage = {
 
       ${this.renderProperty()}
 
+      ${AccountingSection.render(companyId)}
+
       ${MembersSection.render(companyId)}
 
       <div class="settings-section">

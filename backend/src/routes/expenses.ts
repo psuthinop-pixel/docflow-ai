@@ -10,10 +10,12 @@ const EDITABLE = [
   'status', 'vendor_name', 'vendor_address', 'vendor_taxid', 'vendor_branch', 'date',
   'total', 'subtotal', 'tax_amount', 'currency', 'category', 'notes', 'invoice_number', 'receipt_id',
   'fx_rate', 'total_thb', 'fx_rate_date', 'fx_source', 'supply_type', 'vat_claim', 'capex',
+  'payment_source', 'paid_by', 'reimbursed_at',
 ] as const;
 const SUPPLY_TYPES = ['', 'service', 'goods'];
 const VAT_CLAIMS = ['', 'yes', 'no'];
 const CAPEX = ['', 'yes', 'no'];
+const PAYMENT_SOURCES = ['', 'company', 'advance'];
 /** Exchange-rate inputs; only an owner or admin may set them. */
 const FX_INPUTS = ['fx_rate', 'total_thb', 'fx_rate_date', 'fx_source'];
 const FX_SOURCES = ['card_statement', 'bank', 'bot', 'manual'];
@@ -53,11 +55,15 @@ function clean(body: Record<string, unknown>): string | Record<string, string | 
       const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[฿,\s]/g, ''));
       if (!Number.isFinite(n)) return `${key} must be a number`;
       out[key] = n;
-    } else if (key === 'date' || key === 'fx_rate_date') {
+    } else if (key === 'date' || key === 'fx_rate_date' || key === 'reimbursed_at') {
       if (v === null || v === '') { out[key] = null; continue; }
       const d = new Date(String(v));
       if (isNaN(d.getTime())) return `${key} is invalid`;
       out[key] = key === 'date' ? d.toISOString() : d.toISOString().slice(0, 10);
+    } else if (key === 'payment_source') {
+      const t = v == null ? '' : String(v);
+      if (!PAYMENT_SOURCES.includes(t)) return 'payment_source must be company, advance or empty';
+      out.payment_source = t;
     } else if (key === 'vendor_branch') {
       const raw = v == null ? '' : String(v).trim();
       const b = normalizeBranch(raw);
@@ -161,6 +167,12 @@ export function expensesRouter(db: Db): Router {
   const checkWrite = async (orgId: string, role: string, fields: Fields) => {
     if (fields.status === 'approved' && !APPROVERS.includes(role)) {
       return { status: 403, detail: 'Only an owner or admin can approve expenses' };
+    }
+    if ('reimbursed_at' in fields && !APPROVERS.includes(role)) {
+      return { status: 403, detail: 'Only an owner or admin can mark an advance as reimbursed' };
+    }
+    if (fields.reimbursed_at && fields.payment_source !== undefined && fields.payment_source !== 'advance') {
+      return { status: 400, detail: 'Only an employee advance can be reimbursed' };
     }
     if (fields.receipt_id) {
       const receipt = await one<{ organization_id: string }>(
