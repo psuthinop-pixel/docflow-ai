@@ -77,7 +77,7 @@ Design and posting rules: [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md).
 - [x] Inputs on each expense: VAT claim override (fuel), capex flag, payment source (company / advance), reimbursement date
 - [x] A: Chart of accounts (Thai SME seed, editable) + category → account mapping per property, default bank and capex accounts, month readiness check (`/accounting/*`, Settings → Chart of accounts)
 - [x] B: Journal generator (expense → balanced lines, reimbursements) + neutral Excel journal & trial balance (`/accounting/journal[.xlsx]`); depreciation, WHT and AP still to come
-- [ ] C: Month-end close: checklist, period lock, audit log
+- [x] C: Month-end close: readiness checklist, close (owner/admin) freezes the journal and locks the month's receipts, owner-only reopen with a reason, audit log (`/accounting/periods*`, `/accounting/audit`)
 - [ ] D: MMA pack per property + consolidated (P&L, opex, capex register, advances, VAT, cash), with Claude commentary drawn only from the numbers
 - [ ] E: Revenue import + budgets, for a full P&L with variance
 

@@ -108,26 +108,90 @@ window.AccountingSection = {
         </details>`;
     },
 
+    isOwner() {
+        const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+        return org?.role === 'owner';
+    },
+
     renderReadiness() {
         const r = this.readiness;
         if (!r) return '';
+        const closed = r.period?.status === 'closed';
         const item = (x, color) => `<li style="color:${color}">${esc(x.message)} · ${x.count}${x.categories ? `: ${x.categories.map(esc).join(', ')}` : ''}</li>`;
+        const headline = closed
+            ? `🔒 ${esc(r.month)} is closed`
+            : `${r.ready ? '✅' : '⏳'} ${esc(r.month)} ${r.ready ? 'is ready to close' : 'is not ready to close yet'}`;
+        const bg = closed ? 'var(--bg-tertiary, rgba(100,116,139,.12))' : r.ready ? 'var(--green-soft)' : 'var(--amber-soft)';
+        const closeBtn = !closed && this.canEdit()
+            ? `<button class="btn btn-secondary btn-sm" id="closeMonthBtn" ${r.ready ? '' : 'disabled'} title="${r.ready ? 'Freeze this month: its receipts can no longer change' : 'Fix the items below first'}"
+                 onclick="AccountingSection.closeMonth()">🔒 Close month</button>` : '';
+        const reopenBtn = closed && this.isOwner()
+            ? `<button class="btn btn-ghost btn-sm" onclick="AccountingSection.reopenMonth()">🔓 Reopen</button>` : '';
         return `
-        <div style="padding:10px 12px;border-radius:8px;margin-bottom:12px;background:${r.ready ? 'var(--green-soft, rgba(16,185,129,.1))' : 'var(--amber-soft)'}">
+        <div style="padding:10px 12px;border-radius:8px;margin-bottom:12px;background:${bg}">
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <strong>${r.ready ? '✅' : '⏳'} ${esc(r.month)} ${r.ready ? 'is ready to post' : 'is not ready to post yet'}</strong>
-            <span style="font-size:0.8rem;color:var(--text-secondary)">${r.posted} confirmed receipt${r.posted === 1 ? '' : 's'}</span>
-            <input type="month" class="form-input" style="max-width:170px;margin-left:auto" value="${esc(this.month)}" onchange="AccountingSection.setMonth(this.value)" aria-label="Month to check">
-            <button class="btn ${r.ready ? 'btn-primary' : 'btn-secondary'} btn-sm" id="journalBtn" ${r.ready && r.posted ? '' : 'disabled'}
+            <strong>${headline}</strong>
+            <span style="font-size:0.8rem;color:var(--text-secondary)">${closed
+                ? `by ${esc(r.period.closed_by || '—')} on ${esc(fmtDate(r.period.closed_at))}`
+                : `${r.posted} confirmed receipt${r.posted === 1 ? '' : 's'}`}</span>
+            <input type="month" class="form-input" style="max-width:170px;margin-left:auto" value="${esc(this.month)}" onchange="AccountingSection.setMonth(this.value)" aria-label="Month">
+            <button class="btn ${r.ready ? 'btn-primary' : 'btn-secondary'} btn-sm" id="journalBtn" ${r.ready && r.entries?.length ? '' : 'disabled'}
               title="${r.ready ? 'General journal and trial balance for this month' : 'Fix the items below first'}"
               onclick="AccountingSection.downloadJournal()">⬇ Journal (Excel)</button>
+            ${closeBtn}${reopenBtn}
           </div>
-          ${r.blockers.length || r.warnings.length ? `<ul style="margin:6px 0 0 18px;font-size:0.82rem">
+          ${!closed && (r.blockers.length || r.warnings.length) ? `<ul style="margin:6px 0 0 18px;font-size:0.82rem">
             ${r.blockers.map(x => item(x, 'var(--red)')).join('')}${r.warnings.map(x => item(x, 'var(--amber)')).join('')}
             ${(r.errors || []).slice(0, 10).map(x => `<li style="color:var(--red)">${esc(x.vendor_name || 'Receipt')}: ${esc(x.message)}</li>`).join('')}
           </ul>` : ''}
-          ${r.ready && r.entries ? `<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:6px">${r.entries.length} journal entr${r.entries.length === 1 ? 'y' : 'ies'} · Dr ${fmtTHB(r.totals.debit)} = Cr ${fmtTHB(r.totals.credit)}</div>` : ''}
+          ${!closed && r.period?.reopened_at ? `<div style="font-size:0.8rem;color:var(--amber);margin-top:6px">Reopened ${esc(String(r.period.reopened_at).slice(0, 10))}: ${esc(r.period.reopen_reason)}</div>` : ''}
+          ${r.ready && r.entries ? `<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:6px">${r.entries.length} journal entr${r.entries.length === 1 ? 'y' : 'ies'} · Dr ${fmtTHB(r.totals.debit)} = Cr ${fmtTHB(r.totals.credit)}${closed ? ' · frozen at close' : ''}</div>` : ''}
+          <details style="margin-top:8px" ontoggle="if (this.open) AccountingSection.loadLog()">
+            <summary style="cursor:pointer;font-size:0.8rem;color:var(--text-secondary)">🕘 Change log for ${esc(r.month)}</summary>
+            <div id="acctLog" style="font-size:0.8rem;margin-top:6px">Loading…</div>
+          </details>
         </div>`;
+    },
+
+    async loadLog() {
+        const el = document.getElementById('acctLog');
+        if (!el) return;
+        try {
+            const rows = await AccountingApi.audit(this.orgId, this.month);
+            const what = x => {
+                if (x.entity === 'period') return x.action === 'close' ? `Closed the month (${x.detail.entries} entries)` : `Reopened: ${esc(x.detail.reason || '')}`;
+                if (x.action === 'update') return `Edited ${esc(x.detail.vendor_name || 'receipt')}: ${Object.entries(x.detail.changes || {}).map(([k, v]) => `${esc(k)} ${esc(v.from ?? '—')} → ${esc(v.to ?? '—')}`).join(', ')}`;
+                return `${x.action === 'create' ? 'Added' : 'Deleted'} ${esc(x.detail.vendor_name || 'receipt')} ${x.detail.total != null ? fmtTHB(x.detail.total) : ''}`;
+            };
+            el.innerHTML = rows.length
+                ? `<ul style="margin:0 0 0 18px">${rows.map(x => `<li><span style="color:var(--text-muted)">${esc(String(x.created_at).slice(0, 16).replace('T', ' '))} · ${esc(x.user_name || '—')}</span> ${what(x)}</li>`).join('')}</ul>`
+                : '<span style="color:var(--text-muted)">No changes recorded for this month yet.</span>';
+        } catch (error) {
+            el.textContent = `Couldn't load the change log: ${error.message}`;
+        }
+    },
+
+    async closeMonth() {
+        if (!confirm(`Close ${this.month}? Its receipts will be locked and the journal frozen. Only an owner can reopen it.`)) return;
+        try {
+            this.readiness = await AccountingApi.closeMonth(this.orgId, this.month);
+            App.showToast('success', `🔒 ${this.month} closed`);
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+        this.refresh();
+    },
+
+    async reopenMonth() {
+        const reason = prompt(`Why reopen ${this.month}? (recorded in the change log)`);
+        if (reason === null) return;
+        try {
+            this.readiness = await AccountingApi.reopenMonth(this.orgId, this.month, reason);
+            App.showToast('success', `🔓 ${this.month} reopened`);
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+        this.refresh();
     },
 
     renderChart(edit) {

@@ -96,7 +96,12 @@ Every entry must balance; the generator gets a unit test per row of this table.
   Original plan: **Phase B: Journal generator + GL export.** Pure function `expense → journal lines` (the posting rules above),
   `GET /accounting/journal?organization_id&month` (+ .xlsx), in the import format of the accountant's software.
   Reimbursements generate their own entries on `reimbursed_at`.
-- **Phase C: Month-end close.** Close checklist, period lock, audit log, re-export after reopen.
+- ✅ **Phase C: Month-end close** (`backend/src/accounting/periods.ts`; `POST /accounting/periods/close|reopen`,
+  `GET /accounting/periods`, `GET /accounting/audit`). Closing needs the month to be ready and stores the journal as
+  a snapshot (entry numbers fixed). In a closed month, receipts can't be created, edited, deleted or moved in/out (HTTP 423),
+  except recording a reimbursement dated in an open month. Reopen: owner only, reason required, journal regenerated.
+  Audit log: receipt create/update (field-level from → to)/delete, mapping changes, close/reopen.
+  Original plan: **Phase C: Month-end close.** Close checklist, period lock, audit log, re-export after reopen.
 - **Phase D: MMA pack.** `GET /reports/mma?organization_id=<id|all>&month` + Excel/PDF with the 7 sections
   above. Claude writes a short owner commentary (variances, risks, cash timing) from the numbers. It
   never invents figures; every number in the text must come from the pack data.

@@ -3,6 +3,7 @@ import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
 import { normalizeBranch } from '../extract/parse.js';
+import { audit, changedFields, lockProblem, monthOf } from '../accounting/periods.js';
 
 const STATUSES = ['draft', 'confirmed', 'approved', 'disabled'];
 const APPROVERS = ['owner', 'admin'];
@@ -242,13 +243,18 @@ export function expensesRouter(db: Db): Router {
       }
     }
     if (fields.status === 'approved') Object.assign(fields, { approved_by: req.user!.id, approved_at: now() });
+    const ts = now();
+    const locked = await lockProblem(db, orgId, null, { ...fields, created_at: ts });
+    if (locked) return res.status(locked.status).json({ detail: locked.detail });
 
     const id = newId();
-    const ts = now();
     const cols = ['id', 'organization_id', 'created_by', 'created_at', 'updated_at', ...Object.keys(fields)];
     const vals = [id, orgId, req.user!.id, ts, ts, ...Object.values(fields)];
     await db.query(`INSERT INTO expenses (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})`, vals);
-    res.status(201).json(toApi((await findOwned(id, req.user!.id))!));
+    const created = (await findOwned(id, req.user!.id))!;
+    await audit(db, { orgId, userId: req.user!.id, action: 'create', entity: 'expense', entityId: id, month: monthOf(created),
+      detail: { vendor_name: created.vendor_name, total: created.total, status: created.status } });
+    res.status(201).json(toApi(created));
   });
 
   r.put('/:id', async (req, res) => {
@@ -268,12 +274,19 @@ export function expensesRouter(db: Db): Router {
     } else if (fields.status && fields.status !== 'approved') {
       Object.assign(fields, { approved_by: null, approved_at: null });
     }
+    const changes = changedFields(existing, fields);
+    const locked = await lockProblem(db, existing.organization_id, existing, { ...existing, ...fields }, Object.keys(changes));
+    if (locked) return res.status(locked.status).json({ detail: locked.detail });
     const keys = Object.keys(fields);
     if (keys.length) {
       await db.query(
         `UPDATE expenses SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')}, updated_at = $${keys.length + 1} WHERE id = $${keys.length + 2}`,
         [...Object.values(fields), now(), req.params.id],
       );
+    }
+    if (Object.keys(changes).length) {
+      await audit(db, { orgId: existing.organization_id, userId: req.user!.id, action: 'update', entity: 'expense', entityId: existing.id,
+        month: monthOf({ ...existing, ...fields }), detail: { vendor_name: existing.vendor_name, changes } });
     }
     res.json(toApi((await findOwned(req.params.id, req.user!.id))!));
   });
@@ -284,7 +297,11 @@ export function expensesRouter(db: Db): Router {
     if (existing.status === 'approved' && !APPROVERS.includes((await membershipRole(db, req.user!.id, existing.organization_id))!)) {
       return res.status(403).json({ detail: 'Approved expenses can only be deleted by an owner or admin' });
     }
+    const locked = await lockProblem(db, existing.organization_id, existing, null);
+    if (locked) return res.status(locked.status).json({ detail: locked.detail });
     await db.query('DELETE FROM expenses WHERE id = $1', [req.params.id]);
+    await audit(db, { orgId: existing.organization_id, userId: req.user!.id, action: 'delete', entity: 'expense', entityId: existing.id,
+      month: monthOf(existing), detail: { vendor_name: existing.vendor_name, total: existing.total, status: existing.status } });
     res.status(204).end();
   });
 

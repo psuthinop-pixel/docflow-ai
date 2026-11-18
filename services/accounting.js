@@ -22,6 +22,11 @@ window.AccountingApi = {
     journal(orgId, month) {
         return this.request('GET', `/journal?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },
+    closeMonth(orgId, month) { return this.request('POST', '/periods/close', { organization_id: orgId, month }); },
+    reopenMonth(orgId, month, reason) { return this.request('POST', '/periods/reopen', { organization_id: orgId, month, reason }); },
+    audit(orgId, month) {
+        return this.request('GET', `/audit?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
+    },
     readiness(orgId, month) {
         return this.request('GET', `/readiness?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },

@@ -133,6 +133,32 @@ const SCHEMA = [
     capex_code TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  // Month-end close: a closed month's receipts can't change; its journal is frozen in journal_snapshot.
+  `CREATE TABLE IF NOT EXISTS periods (
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    status TEXT NOT NULL,
+    closed_by TEXT REFERENCES users(id),
+    closed_at TEXT,
+    reopened_by TEXT REFERENCES users(id),
+    reopened_at TEXT,
+    reopen_reason TEXT NOT NULL DEFAULT '',
+    journal_snapshot TEXT,
+    PRIMARY KEY (organization_id, month)
+  )`,
+  // Who changed what: receipts, mappings, month close/reopen
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT,
+    month TEXT,
+    detail TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log(organization_id, created_at)`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

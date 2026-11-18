@@ -463,7 +463,7 @@ test('accounting phase A: seeded chart, category mapping, month readiness', asyn
   const codes = (list: { code: string }[]) => list.map((x) => x.code).sort();
   assert.deepEqual(codes(r.blockers), ['drafts', 'uncategorised', 'unmapped_categories']);
   assert.deepEqual(r.blockers.find((x: { code: string }) => x.code === 'unmapped_categories').categories.sort(), ['Office Supplies', 'Transport']);
-  assert.deepEqual(codes(r.warnings), ['advance_no_person', 'capex_default_account']);
+  assert.deepEqual(codes(r.warnings), ['advance_no_person', 'capex_default_account', 'not_approved']);
   assert.equal((await call('GET', `/accounting/readiness?${q}&month=2026-13`, a)).status, 400);
 
   // Map, then rename an account code: the mapping follows
@@ -549,4 +549,78 @@ test('accounting phase B: month journal preview, blockers, reimbursements, Excel
   assert.equal((await call('GET', `/accounting/journal?organization_id=${org._id}&month=bad`, a)).status, 400);
   const c = await login('c@test.com');
   assert.equal((await call('GET', `/accounting/journal?${q}`, c)).status, 403);
+});
+
+test('accounting phase C: close a month, lock its receipts, owner-only reopen, audit log', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Close Hotel', categories: ['Office Supplies'] })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'admin']);
+  await call('GET', `/accounting/accounts?organization_id=${org._id}`, a);
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Office Supplies', account_code: '6140' }] });
+  const add = (f: Record<string, unknown>) => call('POST', '/expenses', a, {
+    organization_id: org._id, currency: 'THB', status: 'approved', date: '2026-10-10', category: 'Office Supplies',
+    vendor_taxid: '0107537000521', total: 1070, tax_amount: 70, payment_source: 'company', ...f,
+  });
+  const draft = (await add({ status: 'draft', vendor_name: 'Draft' })).body;
+  const adv = (await add({ vendor_name: 'Makro', payment_source: 'advance', paid_by: 'Lek' })).body;
+  const close = (month: string, t = a) => call('POST', '/accounting/periods/close', t, { organization_id: org._id, month });
+
+  // Not ready (draft) → refused
+  assert.equal((await close('2026-10')).status, 409);
+  await call('PUT', `/expenses/${draft._id}`, a, { status: 'disabled' });
+  const closed = await close('2026-10', c); // admin may close
+  assert.equal(closed.status, 200);
+  assert.equal(closed.body.period.status, 'closed');
+  assert.equal(closed.body.entries.length, 1);
+  assert.equal((await close('2026-10')).status, 409); // already closed
+
+  // Locked: edit, delete, new receipt dated in the month, moving a receipt into it
+  assert.equal((await call('PUT', `/expenses/${adv._id}`, a, { total: 2000 })).status, 423);
+  assert.equal((await call('DELETE', `/expenses/${adv._id}`, a)).status, 423);
+  assert.equal((await add({ vendor_name: 'Late' })).status, 423);
+  const nov = (await add({ vendor_name: 'Nov', date: '2026-11-03' })).body;
+  assert.equal((await call('PUT', `/expenses/${nov._id}`, a, { date: '2026-10-30' })).status, 423);
+  // Re-saving unchanged values (what the form does) is fine
+  assert.equal((await call('PUT', `/expenses/${adv._id}`, a, { total: 1070, vendor_name: 'Makro', payment_source: 'advance' })).status, 200);
+  // Paying the advance back in an open month is allowed; into a closed month is not
+  assert.equal((await call('PUT', `/expenses/${adv._id}`, a, { reimbursed_at: '2026-10-31' })).status, 423);
+  assert.equal((await call('PUT', `/expenses/${adv._id}`, a, { reimbursed_at: '2026-11-04' })).status, 200);
+
+  // The closed journal is frozen: mapping changes don't alter it
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Office Supplies', account_code: '6900' }] });
+  const frozen = (await call('GET', `/accounting/journal?organization_id=${org._id}&month=2026-10`, a)).body;
+  assert.equal(frozen.period.status, 'closed');
+  assert.equal(frozen.period.closed_by, 'Test');
+  assert.equal(frozen.entries[0].lines[0].account_code, '6140');
+  const xlsx = await fetch(`${base}/accounting/journal.xlsx?organization_id=${org._id}&month=2026-10`, { headers: { Authorization: `Bearer ${a}` } });
+  assert.equal(xlsx.status, 200);
+
+  // Reopen: owner only, with a reason
+  const reopen = (t: string, reason: string) => call('POST', '/accounting/periods/reopen', t, { organization_id: org._id, month: '2026-10', reason });
+  assert.equal((await reopen(c, 'fix')).status, 403);
+  assert.equal((await reopen(a, '')).status, 400);
+  const opened = await reopen(a, 'Supplier sent a corrected invoice');
+  assert.equal(opened.status, 200);
+  assert.equal(opened.body.period.status, 'open');
+  assert.equal(opened.body.entries[0].lines[0].account_code, '6900'); // regenerated with the new mapping
+  assert.equal((await call('PUT', `/expenses/${adv._id}`, a, { total: 1177, tax_amount: 77 })).status, 200);
+  assert.equal((await reopen(a, 'again')).status, 409);
+
+  const periods = (await call('GET', `/accounting/periods?organization_id=${org._id}`, a)).body;
+  assert.equal(periods[0].month, '2026-10');
+  assert.equal(periods[0].status, 'open');
+  assert.equal(periods[0].reopen_reason, 'Supplier sent a corrected invoice');
+
+  // Audit trail, newest first
+  const log = (await call('GET', `/accounting/audit?organization_id=${org._id}&month=2026-10`, a)).body as { action: string; entity: string; detail: any }[];
+  const actions = log.map((x) => `${x.action}:${x.entity}`);
+  assert.equal(actions[0], 'update:expense');
+  assert.ok(actions.includes('reopen:period'));
+  assert.ok(actions.includes('close:period'));
+  assert.ok(actions.includes('create:expense'));
+  assert.deepEqual(log[0].detail.changes.total, { from: 1070, to: 1177 });
+  assert.equal(log.find((x) => x.action === 'reopen')!.detail.reason, 'Supplier sent a corrected invoice');
+  assert.equal((await call('GET', `/accounting/audit?organization_id=nope`, a)).status, 403);
 });

@@ -8,6 +8,7 @@ import { ACCOUNT_TYPES, DEFAULT_BANK_CODE, DEFAULT_CAPEX_CODE, SEED_ACCOUNTS, su
 import { CAPEX, CLAIMABLE, MONTH } from './reports.js';
 import { expenseEntry, PostingError, reimbursementEntry, round2, trialBalance, type AccountRef, type JournalEntry, type PostingContext, type PostingExpense } from '../accounting/journal.js';
 import { journalWorkbook } from '../accounting/journal-xlsx.js';
+import { audit } from '../accounting/periods.js';
 
 const EDITORS = ['owner', 'admin'];
 
@@ -213,6 +214,8 @@ export function accountingRouter(db: Db): Router {
     if ('bank_code' in body) await db.query('UPDATE accounting_settings SET bank_code = $2, updated_at = $3 WHERE organization_id = $1', [a.orgId, String(body.bank_code), ts]);
     if ('capex_code' in body) await db.query('UPDATE accounting_settings SET capex_code = $2, updated_at = $3 WHERE organization_id = $1', [a.orgId, String(body.capex_code), ts]);
     const settings = await one(db, 'SELECT bank_code, capex_code FROM accounting_settings WHERE organization_id = $1', [a.orgId]);
+    await audit(db, { orgId: a.orgId, userId: req.user!.id, action: 'update', entity: 'mapping',
+      detail: { mappings, bank_code: body.bank_code, capex_code: body.capex_code } });
     res.json({ categories: await categoryRows(a.orgId), settings });
   });
 
@@ -229,7 +232,8 @@ export function accountingRouter(db: Db): Router {
               COUNT(*) FILTER (WHERE ${POSTED} AND e.total_thb IS NULL)::int AS fx_pending,
               COUNT(*) FILTER (WHERE ${POSTED} AND e.payment_source = '')::int AS payment_unset,
               COUNT(*) FILTER (WHERE ${POSTED} AND e.payment_source = 'advance' AND e.paid_by = '')::int AS advance_no_person,
-              COUNT(*) FILTER (WHERE ${POSTED} AND e.currency <> 'THB' AND e.supply_type = '')::int AS foreign_type_unset
+              COUNT(*) FILTER (WHERE ${POSTED} AND e.currency <> 'THB' AND e.supply_type = '')::int AS foreign_type_unset,
+              COUNT(*) FILTER (WHERE e.status = 'confirmed')::int AS not_approved
        ${inMonth}`,
       args,
     );
@@ -265,6 +269,7 @@ export function accountingRouter(db: Db): Router {
     if (counts.payment_unset) warnings.push({ code: 'payment_unset', message: '"Paid from" not set: will post as company bank payments', count: counts.payment_unset });
     if (counts.advance_no_person) warnings.push({ code: 'advance_no_person', message: 'Advances without "Paid by": owed to an unknown person', count: counts.advance_no_person });
     if (counts.foreign_type_unset) warnings.push({ code: 'foreign_type_unset', message: 'Foreign receipts without "Service or goods": posted with no ภ.พ.36', count: counts.foreign_type_unset });
+    if (counts.not_approved) warnings.push({ code: 'not_approved', message: 'Confirmed but not yet approved by an owner/admin', count: counts.not_approved });
     if (capexToDefault?.n) warnings.push({ code: 'capex_default_account', message: 'Capex in a non-asset category: will post to the default capex account', count: capexToDefault.n });
 
     return { organization_id: orgId, month, posted: counts.posted, ready: blockers.length === 0, blockers, warnings };
@@ -278,7 +283,7 @@ export function accountingRouter(db: Db): Router {
   });
 
   /** The month's journal: one entry per posted expense dated in the month, plus advances reimbursed in the month. */
-  async function journal(orgId: string, month: string) {
+  async function buildJournal(orgId: string, month: string) {
     const [accts, maps, settings] = await Promise.all([
       accounts(orgId),
       all<{ category: string; account_code: string }>(db, 'SELECT category, account_code FROM category_accounts WHERE organization_id = $1', [orgId]),
@@ -333,6 +338,89 @@ export function accountingRouter(db: Db): Router {
     const credit = round2(tb.reduce((t, x) => t + x.credit, 0));
     return { ...ready, entries: numbered, errors, trial_balance: tb, totals: { debit, credit, balanced: debit === credit } };
   }
+
+  type Period = { month: string; status: string; closed_by: string | null; closed_at: string | null; closed_by_name?: string;
+    reopened_at: string | null; reopen_reason: string; journal_snapshot: string | null };
+  const period = (orgId: string, month: string) => one<Period>(
+    db,
+    `SELECT p.*, u.name AS closed_by_name FROM periods p LEFT JOIN users u ON u.id = p.closed_by
+     WHERE p.organization_id = $1 AND p.month = $2`,
+    [orgId, month],
+  );
+
+  /** A closed month returns its frozen journal; an open month is generated from the receipts as they are now. */
+  async function journal(orgId: string, month: string) {
+    const p = await period(orgId, month);
+    const closing = p?.status === 'closed'
+      ? { status: 'closed', closed_at: p.closed_at, closed_by: p.closed_by_name ?? null }
+      : { status: 'open', closed_at: null, closed_by: null, reopened_at: p?.reopened_at ?? null, reopen_reason: p?.reopen_reason ?? '' };
+    if (p?.status === 'closed' && p.journal_snapshot) return { ...JSON.parse(p.journal_snapshot), period: closing } as Awaited<ReturnType<typeof buildJournal>> & { period: typeof closing };
+    return { ...(await buildJournal(orgId, month)), period: closing };
+  }
+
+  // GET /accounting/periods?organization_id=<id>: closed and reopened months
+  r.get('/periods', async (req, res) => {
+    const a = await access(req.user!.id, req.query.organization_id);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    res.json(await all(db,
+      `SELECT p.month, p.status, p.closed_at, cu.name AS closed_by, p.reopened_at, ru.name AS reopened_by, p.reopen_reason
+       FROM periods p LEFT JOIN users cu ON cu.id = p.closed_by LEFT JOIN users ru ON ru.id = p.reopened_by
+       WHERE p.organization_id = $1 ORDER BY p.month DESC`, [a.orgId]));
+  });
+
+  // POST /accounting/periods/close { organization_id, month }: owner/admin, only when the month is ready
+  r.post('/periods/close', async (req, res) => {
+    const body = req.body ?? {};
+    const a = await access(req.user!.id, body.organization_id, true);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    if (!isMonth(body.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
+    if ((await period(a.orgId, body.month))?.status === 'closed') return res.status(409).json({ detail: `${body.month} is already closed` });
+    const j = await buildJournal(a.orgId, body.month);
+    if (!j.ready) {
+      return res.status(409).json({ detail: `${body.month} isn't ready to close: ${j.blockers.map((b) => b.message).join('; ')}`, blockers: j.blockers });
+    }
+    const ts = now();
+    await db.query(
+      `INSERT INTO periods (organization_id, month, status, closed_by, closed_at, journal_snapshot) VALUES ($1, $2, 'closed', $3, $4, $5)
+       ON CONFLICT (organization_id, month) DO UPDATE SET status = 'closed', closed_by = $3, closed_at = $4, journal_snapshot = $5`,
+      [a.orgId, body.month, req.user!.id, ts, JSON.stringify(j)],
+    );
+    await audit(db, { orgId: a.orgId, userId: req.user!.id, action: 'close', entity: 'period', month: body.month,
+      detail: { entries: j.entries.length, debit: j.totals.debit, credit: j.totals.credit } });
+    res.json(await journal(a.orgId, body.month));
+  });
+
+  // POST /accounting/periods/reopen { organization_id, month, reason }: owner only, reason required
+  r.post('/periods/reopen', async (req, res) => {
+    const body = req.body ?? {};
+    const a = await access(req.user!.id, body.organization_id, true);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    if (a.role !== 'owner') return res.status(403).json({ detail: 'Only an owner can reopen a closed month' });
+    if (!isMonth(body.month)) return res.status(400).json({ detail: 'month must be YYYY-MM' });
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length < 3) return res.status(400).json({ detail: 'Give a reason for reopening the month' });
+    if ((await period(a.orgId, body.month))?.status !== 'closed') return res.status(409).json({ detail: `${body.month} is not closed` });
+    await db.query(
+      `UPDATE periods SET status = 'open', reopened_by = $3, reopened_at = $4, reopen_reason = $5, journal_snapshot = NULL
+       WHERE organization_id = $1 AND month = $2`,
+      [a.orgId, body.month, req.user!.id, now(), reason],
+    );
+    await audit(db, { orgId: a.orgId, userId: req.user!.id, action: 'reopen', entity: 'period', month: body.month, detail: { reason } });
+    res.json(await journal(a.orgId, body.month));
+  });
+
+  // GET /accounting/audit?organization_id=<id>[&month=YYYY-MM]: newest first, at most 200
+  r.get('/audit', async (req, res) => {
+    const a = await access(req.user!.id, req.query.organization_id);
+    if ('error' in a) return res.status(a.error.status).json({ detail: a.error.detail });
+    const month = isMonth(req.query.month) ? req.query.month : null;
+    const rows = await all<Record<string, any>>(db,
+      `SELECT l.id, l.action, l.entity, l.entity_id, l.month, l.detail, l.created_at, u.name AS user_name
+       FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
+       WHERE l.organization_id = $1 AND ($2::text IS NULL OR l.month = $2)
+       ORDER BY l.created_at DESC LIMIT 200`, [a.orgId, month]);
+    res.json(rows.map((x) => ({ ...x, detail: JSON.parse(x.detail) })));
+  });
 
   // GET /accounting/journal?organization_id=<id>&month=YYYY-MM: preview, always available
   r.get('/journal', async (req, res) => {
