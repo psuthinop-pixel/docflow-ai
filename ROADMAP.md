@@ -43,7 +43,8 @@ Goal: the features that already work end to end run against a real backend.
 
 ## Phase 1 — Core receipt capture (2–3 weeks) ← where most of the value is
 - [x] OCR on the server, Thai + English (`tesseract.js`, `tha+eng`, language data bundled, works offline)
-- [x] Typhoon OCR engine, default in `auto` when `TYPHOON_OCR_API_KEY` is set; Tesseract is the offline fallback
+- [x] Typhoon OCR engine (used in `auto` when there is no Claude key); Tesseract is the offline fallback
+- [x] Claude accuracy phase 1: Claude first in `auto`; Thai rules (seller vs buyer, BE dates, branch, VAT 7%, WHT); effort medium with one high-effort second look when the arithmetic/checksum/date/buyer checks fail; suggestions prefilled for review (abbreviated tax invoice → VAT not claimable, asset → capex, foreign service/goods, WHT and payment-method notes)
 - [x] Optional Claude extractor (`OCR_ENGINE=claude`, or `auto` when `ANTHROPIC_API_KEY` is set) — not yet tested live
 - [x] Extract the 13-digit tax ID (checksum validated), VAT, invoice number, date (พ.ศ. → ค.ศ., Thai month names, Thai digits)
 - [x] PDFs: text layer first (e-Tax), scanned PDFs rasterised with `pdftoppm`

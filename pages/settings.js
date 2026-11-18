@@ -169,7 +169,7 @@ window.SettingsPage = {
 
         const { ocr, max_upload_mb } = this.status;
         const names = { typhoon: 'Typhoon OCR', claude: 'Claude', tesseract: 'Tesseract (offline)' };
-        const mode = ocr.setting === 'auto' ? 'Automatic: Typhoon, then Claude, then Tesseract' : `Fixed to ${names[ocr.setting] || ocr.setting}`;
+        const mode = ocr.setting === 'auto' ? 'Automatic: Claude, then Typhoon, then Tesseract' : `Fixed to ${names[ocr.setting] || ocr.setting}`;
         const row = (key, note) => {
             const on = ocr.engines[key];
             return `<div class="settings-row">

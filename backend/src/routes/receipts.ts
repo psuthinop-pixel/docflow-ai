@@ -47,8 +47,8 @@ export function receiptsRouter(db: Db, opts: ReceiptOptions): Router {
       const file = req.file;
       if (!file) return res.status(400).json({ detail: 'file is required (JPEG, PNG, WebP or PDF)' });
 
-      const org = (await one<{ categories: string }>(db, 'SELECT categories FROM organizations WHERE id = $1', [orgId]))!;
-      const extraction = await extractReceipt(file.buffer, file.mimetype, JSON.parse(org.categories), opts.ocrEngine);
+      const org = (await one<{ categories: string; organization_name: string }>(db, 'SELECT categories, organization_name FROM organizations WHERE id = $1', [orgId]))!;
+      const extraction = await extractReceipt(file.buffer, file.mimetype, JSON.parse(org.categories), opts.ocrEngine, org.organization_name);
 
       const id = newId();
       const sha256 = createHash('sha256').update(file.buffer).digest('hex');
