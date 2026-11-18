@@ -76,7 +76,7 @@ Goal: the features that already work end to end run against a real backend.
 Design and posting rules: [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md).
 - [x] Inputs on each expense: VAT claim override (fuel), capex flag, payment source (company / advance), reimbursement date
 - [x] A: Chart of accounts (Thai SME seed, editable) + category → account mapping per property, default bank and capex accounts, month readiness check (`/accounting/*`, Settings → Chart of accounts)
-- [ ] B: Journal generator (expense → balanced lines) + export in the accountant's import format
+- [x] B: Journal generator (expense → balanced lines, reimbursements) + neutral Excel journal & trial balance (`/accounting/journal[.xlsx]`); depreciation, WHT and AP still to come
 - [ ] C: Month-end close: checklist, period lock, audit log
 - [ ] D: MMA pack per property + consolidated (P&L, opex, capex register, advances, VAT, cash), with Claude commentary drawn only from the numbers
 - [ ] E: Revenue import + budgets, for a full P&L with variance
