@@ -151,3 +151,24 @@ test('no revenue anywhere: revenue section stays null; group revenue sums proper
   assert.equal(g.revenue!.revpar, 433.33);      // 390,000 / 900
   assert.deepEqual(g.by_property!.map((x) => [x.name, x.revenue, x.occupancy_pct]), [['A', 150000, 50], ['B', 240000, 50]]);
 });
+
+test('no rooms set (not a hotel, e.g. the management company): no hotel ratios; group ratios use hotels only', () => {
+  const prop = (id: string, rooms: number | null, nights: number, net: number) => buildPack(input({
+    organization: { id, name: id }, rooms,
+    entries: [revLine({ net_amount: net })],
+    revenueLines: [{ channel: 'Direct', net_amount: net, commission: 0, room_nights: nights }],
+  }));
+  const serve = prop('Serve Property', null, 10, 50000);   // room nights typed by mistake still don't produce ratios
+  assert.equal(serve.revenue!.total, 50000);
+  assert.equal(serve.summary.gop, 50000);        // no costs in this fixture
+  assert.deepEqual([serve.revenue!.occupancy_pct, serve.revenue!.adr, serve.revenue!.revpar], [null, null, null]);
+
+  const g = consolidate([serve, prop('Atrium', 20, 300, 240000)], '2026-11');
+  assert.equal(g.revenue!.total, 290000);       // all revenue in the totals and GOP
+  assert.equal(g.revenue!.rooms, 20);
+  assert.equal(g.revenue!.room_nights, 300);    // Serve Property's 10 excluded
+  assert.equal(g.revenue!.occupancy_pct, 50);   // 300 / (20 × 30)
+  assert.equal(g.revenue!.adr, 800);            // 240,000 / 300
+  assert.equal(g.revenue!.revpar, 400);
+  assert.deepEqual(g.by_property!.map((x) => [x.name, x.occupancy_pct]), [['Serve Property', null], ['Atrium', 50]]);
+});

@@ -99,7 +99,7 @@ window.MmaPage = {
         const revTiles = r ? `
           ${tile('🏨', 'Revenue', fmtTHB(r.total), r.change_pct == null ? 'No revenue last month' : `${r.change_pct > 0 ? '↑' : '↓'} ${Math.abs(r.change_pct)}% vs last month (${fmtTHB(r.prev)})`, 'green', r.change_pct > 0 ? 'var(--green)' : 'var(--red)')}
           ${tile('📈', 'GOP', fmtTHB(s.gop), s.gop_margin_pct == null ? '' : `${s.gop_margin_pct}% margin · before depreciation`, 'accent', s.gop < 0 ? 'var(--red)' : 'var(--text-secondary)')}
-          ${tile('🛏', 'Occupancy', r.occupancy_pct == null ? '—' : `${r.occupancy_pct}%`, r.adr == null ? (r.rooms ? 'No room nights entered' : 'Set rooms in Settings → Property') : `ADR ${fmtTHB(r.adr)}${r.revpar != null ? ` · RevPAR ${fmtTHB(r.revpar)}` : ''}`, 'cyan')}` : '';
+          ${r.rooms ? tile('🛏', 'Occupancy', r.occupancy_pct == null ? '—' : `${r.occupancy_pct}%`, r.adr == null ? 'No room nights entered' : `ADR ${fmtTHB(r.adr)}${r.revpar != null ? ` · RevPAR ${fmtTHB(r.revpar)}` : ''}${d.by_property ? ' · hotels only' : ''}`, 'cyan') : ''}` : '';
         const change = s.opex_change_pct == null ? 'No costs posted last month' : `${s.opex_change_pct > 0 ? '↑' : '↓'} ${Math.abs(s.opex_change_pct)}% vs last month (${fmtTHB(s.opex_prev)})`;
         return header + `
       <div style="${this.loading ? 'opacity:0.55;pointer-events:none' : ''}">
@@ -120,8 +120,9 @@ window.MmaPage = {
         ${r ? `<div class="grid-2" style="margin-bottom:20px">
           ${this.card('Revenue by account', 'This month vs last month and the same month last year',
               this.table([['Account'], ['This month', 1], ['Last month', 1], ['Last year', 1]], r.by_account.map(x => [`${esc(x.code)} ${esc(x.name)}`, fmtTHB(x.amount), fmtTHB(x.prev), x.ly ? fmtTHB(x.ly) : '—'])))}
-          ${this.card('Revenue by channel', `${r.room_nights} room nights${r.commission ? ` · ${fmtTHB(r.commission)} OTA commission` : ''}`,
-              this.table([['Channel'], ['Room nights', 1], ['Net revenue', 1], ['Commission', 1]], r.by_channel.map(c => [esc(c.channel), c.room_nights || '—', fmtTHB(c.net), c.commission ? fmtTHB(c.commission) : '—'])))}
+          ${this.card('Revenue by channel', [r.rooms ? `${r.room_nights} room nights` : '', r.commission ? `${fmtTHB(r.commission)} OTA commission` : ''].filter(Boolean).join(' · ') || 'Net of VAT',
+              this.table([['Channel'], ...(r.rooms ? [['Room nights', 1]] : []), ['Net revenue', 1], ['Commission', 1]],
+                r.by_channel.map(c => [esc(c.channel), ...(r.rooms ? [c.room_nights || '—'] : []), fmtTHB(c.net), c.commission ? fmtTHB(c.commission) : '—'])))}
         </div>` : ''}
         ${this.scope !== 'all' ? this.renderRevenueEditor() : ''}
         <div class="grid-2" style="margin-bottom:20px">
@@ -152,7 +153,7 @@ window.MmaPage = {
         const accOptions = (this.accounts || []).filter(a => a.type === 'revenue' && a.active)
             .map(a => `<option value="${esc(a.code)}">${esc(a.code)} · ${esc(a.name)}</option>`).join('');
         const rows = rv.lines.map(l => [
-            esc(fmtDate(l.date)), `${esc(l.account_code)} ${esc(l.account_name || '')}`, esc(l.channel || '—'), l.room_nights ?? '—',
+            esc(fmtDate(l.date)), `${esc(l.account_code)} ${esc(l.account_name || '')}`, esc(l.channel || '—'), ...(rv.rooms ? [l.room_nights ?? '—'] : []),
             fmtTHB(l.net_amount), fmtTHB(l.vat_amount), l.commission ? fmtTHB(l.commission) : '—', l.received_to === 'receivable' ? 'Receivable' : 'Bank',
             edit ? `<button class="btn btn-ghost btn-sm" onclick="MmaPage.deleteRevenue('${esc(l._id)}')" aria-label="Delete line">✕</button>` : '',
         ]);
@@ -161,9 +162,9 @@ window.MmaPage = {
           <div class="card-header"><div>
             <div class="card-title">🏨 Revenue lines · ${esc(fmtMonth(this.month, { month: 'long', year: 'numeric' }))}</div>
             <div class="card-subtitle">${rv.closed ? '🔒 Month closed: an owner must reopen it to change revenue'
-                : 'Monthly totals from your PMS night audit and OTA statements. Net = before VAT; commission = what the OTA kept.'}${rv.rooms ? ` · ${rv.rooms} rooms` : ' · set rooms in Settings → Property for occupancy'}</div>
+                : 'Monthly totals from your PMS night audit and OTA statements. Net = before VAT; commission = what the OTA kept.'}${rv.rooms ? ` · ${rv.rooms} rooms` : ''}</div>
           </div></div>
-          ${this.table([['Date'], ['Account'], ['Channel'], ['Room nights', 1], ['Net', 1], ['VAT', 1], ['Commission', 1], ['Paid to'], ['']], rows, 'No revenue entered yet.')}
+          ${this.table([['Date'], ['Account'], ['Channel'], ...(rv.rooms ? [['Room nights', 1]] : []), ['Net', 1], ['VAT', 1], ['Commission', 1], ['Paid to'], ['']], rows, 'No revenue entered yet.')}
           ${edit ? `
           <form style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:flex-end" onsubmit="event.preventDefault();MmaPage.addRevenue()">
             <select class="form-input" id="revAccount" style="max-width:220px" aria-label="Account">${accOptions}</select>
@@ -172,7 +173,7 @@ window.MmaPage = {
               title="Total charged to guests including 7% VAT; net and VAT are worked out for you">
             <label style="font-size:0.8rem;display:flex;gap:4px;align-items:center"><input type="checkbox" id="revNoVat"> No VAT</label>
             <input class="form-input" id="revCommission" placeholder="OTA commission" inputmode="decimal" style="max-width:140px">
-            <input class="form-input" id="revNights" placeholder="Room nights" inputmode="numeric" style="max-width:110px">
+            ${rv.rooms ? '<input class="form-input" id="revNights" placeholder="Room nights" inputmode="numeric" style="max-width:110px">' : ''}
             <select class="form-input" id="revReceived" style="max-width:150px" aria-label="Paid to"><option value="bank">Paid to bank</option><option value="receivable">Not yet received</option></select>
             <button class="btn btn-primary btn-sm" type="submit">+ Add line</button>
           </form>

@@ -122,8 +122,8 @@ window.SettingsPage = {
         <div class="form-group">
           <label class="form-label" for="propRooms">Rooms</label>
           <input class="form-input" id="propRooms" type="number" min="1" step="1" style="max-width:140px" value="${esc(d.rooms)}" ${dis}
-            placeholder="e.g. 119" oninput="SettingsPage.draft.rooms = this.value"
-            title="Sellable rooms, for occupancy, ADR and RevPAR in Management accounts">
+            placeholder="blank = not a hotel" oninput="SettingsPage.draft.rooms = this.value"
+            title="Sellable rooms, for occupancy, ADR and RevPAR in Management accounts. Leave blank for a property that isn't a hotel (e.g. the management company): no hotel ratios are shown.">
         </div>
 
         <div class="form-group">

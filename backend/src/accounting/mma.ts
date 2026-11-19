@@ -128,7 +128,8 @@ export function revenueSection(
     commission: round2(lines.reduce((t, l) => t + l.commission, 0)),
     room_nights: roomNights, room_revenue: roomRevenue, rooms, days,
     occupancy_pct: available ? round1((roomNights / available) * 100) : null,
-    adr: roomNights ? round2(roomRevenue / roomNights) : null,
+    // Hotel ratios only for properties with rooms set (a non-hotel entity such as the management company has none)
+    adr: available && roomNights ? round2(roomRevenue / roomNights) : null,
     revpar: available ? round2(roomRevenue / available) : null,
   };
 }
@@ -273,16 +274,21 @@ export function consolidate(packs: Pack[], month: string): Pack {
       return m;
     };
     const lines = withRev.flatMap((p) => p.revenue!.by_channel.map((c) => ({ channel: c.channel, net_amount: c.net, commission: c.commission, room_nights: c.room_nights })));
-    // Room revenue isn't per channel, so group KPIs are rebuilt from each property's own figures
-    const allRooms = withRev.every((p) => p.revenue!.rooms);
-    revenue = revenueSection(month, acc('amount'), acc('prev'), acc('ly'), lines, allRooms ? withRev.reduce((t, p) => t + p.revenue!.rooms!, 0) : null);
-    const roomRevenue = round2(withRev.reduce((t, p) => t + p.revenue!.room_revenue, 0));
-    const available = revenue?.rooms ? revenue.rooms * revenue.days : 0;
-    if (revenue) Object.assign(revenue, {
-      room_revenue: roomRevenue,
-      adr: revenue.room_nights ? round2(roomRevenue / revenue.room_nights) : null,
-      revpar: available ? round2(roomRevenue / available) : null,
-    });
+    revenue = revenueSection(month, acc('amount'), acc('prev'), acc('ly'), lines, null);
+    // Group hotel ratios from the hotel properties only (rooms set); others' revenue stays in the totals and GOP
+    const hotels = withRev.filter((p) => p.revenue!.rooms);
+    if (revenue) {
+      const rooms = hotels.reduce((t, p) => t + p.revenue!.rooms!, 0);
+      const nights = hotels.reduce((t, p) => t + p.revenue!.room_nights, 0);
+      const roomRevenue = round2(hotels.reduce((t, p) => t + p.revenue!.room_revenue, 0));
+      const available = rooms * revenue.days;
+      Object.assign(revenue, {
+        rooms: rooms || null, room_nights: nights, room_revenue: roomRevenue,
+        occupancy_pct: available ? round1((nights / available) * 100) : null,
+        adr: available && nights ? round2(roomRevenue / nights) : null,
+        revpar: available ? round2(roomRevenue / available) : null,
+      });
+    }
   }
   return {
     organizations: packs.flatMap((p) => p.organizations),
