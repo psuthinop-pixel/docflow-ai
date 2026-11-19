@@ -12,7 +12,7 @@ npm test
 
 The schema is created on startup (`CREATE TABLE IF NOT EXISTS`). Tests run on in-process Postgres (PGlite), so they need no database.
 
-Env: `DATABASE_URL` (**required**), `MAX_UPLOAD_MB` (10; Vercel caps request bodies at 4.5 MB), `OCR_ENGINE` (`auto` | `typhoon` | `tesseract` | `claude`; `auto` = Typhoon → Claude → Tesseract, falling back to Tesseract if Typhoon fails), `TYPHOON_OCR_API_KEY` (enables Typhoon in `auto`; needs `pip install typhoon-ocr` and `pdftoppm`, so not available on Vercel), `TYPHOON_CACHE_DIR` (optional OCR text cache), `ANTHROPIC_API_KEY` (enables Claude in `auto`), `CLAUDE_MODEL`, `PORT` (8000), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
+Env: `DATABASE_URL` (**required**), `MAX_UPLOAD_MB` (10; Vercel caps request bodies at 4.5 MB), `OCR_ENGINE` (`auto` | `typhoon` | `tesseract` | `claude`; `auto` = Claude → Typhoon → Tesseract, falling back to Tesseract if Typhoon fails), `TYPHOON_OCR_API_KEY` (enables Typhoon in `auto`; needs `pip install typhoon-ocr` and `pdftoppm`, so not available on Vercel), `TYPHOON_CACHE_DIR` (optional OCR text cache), `ANTHROPIC_API_KEY` (enables Claude in `auto`), `CLAUDE_MODEL`, `PORT` (8000), `JWT_SECRET` (**required in production**), `JWT_EXPIRES_IN` (7d), `CORS_ORIGINS` (http://localhost:3000).
 
 Uploaded receipt files are stored in Postgres (`receipts.content`), since serverless instances have no persistent disk.
 
