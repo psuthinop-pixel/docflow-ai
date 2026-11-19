@@ -8,6 +8,8 @@ window.MmaPage = {
     error: null,
     language: 'en',
     generating: false,
+    accounts: [],
+    revenue: null,        // GET /accounting/revenue for this property and month (lines you can edit)
 
     REASONS: { fuel: 'Fuel (passenger car): VAT kept in cost', excluded: 'Marked not claimable', missing_tax_id: 'No 13-digit seller tax ID' },
 
@@ -37,9 +39,14 @@ window.MmaPage = {
         this.error = null;
         this.refresh();
         try {
-            const data = await AccountingApi.mma(this.orgParam(), this.month);
+            const single = this.scope !== 'all';
+            const [data, revenue, accounts] = await Promise.all([
+                AccountingApi.mma(this.orgParam(), this.month),
+                single ? AccountingApi.revenue(this.orgParam(), this.month) : null,
+                single ? AccountingApi.accounts(this.orgParam()) : [],
+            ]);
             if (key !== this.loadedKey) return;
-            this.data = data;
+            Object.assign(this, { data, revenue, accounts });
         } catch (error) {
             this.error = error.message;
             this.data = null;
@@ -88,20 +95,36 @@ window.MmaPage = {
 
         const s = d.summary;
         const tile = (icon, label, value, note, color, noteColor = 'var(--text-secondary)') => ReportsPage.tile(icon, label, value, note, noteColor, color);
+        const r = d.revenue;
+        const revTiles = r ? `
+          ${tile('🏨', 'Revenue', fmtTHB(r.total), r.change_pct == null ? 'No revenue last month' : `${r.change_pct > 0 ? '↑' : '↓'} ${Math.abs(r.change_pct)}% vs last month (${fmtTHB(r.prev)})`, 'green', r.change_pct > 0 ? 'var(--green)' : 'var(--red)')}
+          ${tile('📈', 'GOP', fmtTHB(s.gop), s.gop_margin_pct == null ? '' : `${s.gop_margin_pct}% margin · before depreciation`, 'accent', s.gop < 0 ? 'var(--red)' : 'var(--text-secondary)')}
+          ${r.rooms ? tile('🛏', 'Occupancy', r.occupancy_pct == null ? '—' : `${r.occupancy_pct}%`, r.adr == null ? 'No room nights entered' : `ADR ${fmtTHB(r.adr)}${r.revpar != null ? ` · RevPAR ${fmtTHB(r.revpar)}` : ''}${d.by_property ? ' · hotels only' : ''}`, 'cyan') : ''}` : '';
         const change = s.opex_change_pct == null ? 'No costs posted last month' : `${s.opex_change_pct > 0 ? '↑' : '↓'} ${Math.abs(s.opex_change_pct)}% vs last month (${fmtTHB(s.opex_prev)})`;
         return header + `
       <div style="${this.loading ? 'opacity:0.55;pointer-events:none' : ''}">
         ${this.renderStatus(d)}
         <div class="kpi-grid">
+          ${revTiles}
           ${tile('💰', 'Operating costs', fmtTHB(s.opex), change, 'accent', s.opex_change_pct > 0 ? 'var(--red)' : 'var(--green)')}
           ${tile('🏗', 'Capex', fmtTHB(s.capex), `${fmtTHB(s.capex_ytd)} year to date`, 'cyan')}
           ${tile('🧾', 'Input VAT claimable', fmtTHB(s.input_vat), s.vat_not_claimable ? `${fmtTHB(s.vat_not_claimable)} not claimable` : 'All VAT claimable', 'green')}
           ${tile('🙋', 'Advances owed', fmtTHB(s.advances_outstanding), `${fmtTHB(s.advances_opened)} paid out · ${fmtTHB(s.advances_repaid)} repaid`, 'amber')}
           ${tile('🏦', 'Cash out (company)', fmtTHB(s.cash_out), `${s.entries} journal entries`, 'accent')}
         </div>
-        <div style="font-size:0.8rem;color:var(--text-muted);margin:-12px 0 16px">Revenue is not captured in DocFlow yet, so this is a cost statement, not a full P&amp;L.</div>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin:-12px 0 16px">${r
+            ? 'GOP = revenue − operating costs (OTA commission included), before depreciation.'
+            : 'No revenue entered for this month yet, so this is a cost statement. Add revenue below to see GOP, occupancy and ADR.'}</div>
         ${this.renderCommentary(d)}
         ${d.by_property ? this.renderByProperty(d) : ''}
+        ${r ? `<div class="grid-2" style="margin-bottom:20px">
+          ${this.card('Revenue by account', 'This month vs last month and the same month last year',
+              this.table([['Account'], ['This month', 1], ['Last month', 1], ['Last year', 1]], r.by_account.map(x => [`${esc(x.code)} ${esc(x.name)}`, fmtTHB(x.amount), fmtTHB(x.prev), x.ly ? fmtTHB(x.ly) : '—'])))}
+          ${this.card('Revenue by channel', [r.rooms ? `${r.room_nights} room nights` : '', r.commission ? `${fmtTHB(r.commission)} OTA commission` : ''].filter(Boolean).join(' · ') || 'Net of VAT',
+              this.table([['Channel'], ...(r.rooms ? [['Room nights', 1]] : []), ['Net revenue', 1], ['Commission', 1]],
+                r.by_channel.map(c => [esc(c.channel), ...(r.rooms ? [c.room_nights || '—'] : []), fmtTHB(c.net), c.commission ? fmtTHB(c.commission) : '—'])))}
+        </div>` : ''}
+        ${this.scope !== 'all' ? this.renderRevenueEditor() : ''}
         <div class="grid-2" style="margin-bottom:20px">
           ${this.card('Operating costs by account', 'This month vs last month and the same month last year', this.renderOpex(d))}
           ${this.card('Top vendors', 'Operating costs and capex, net of claimable VAT', this.renderVendors(d))}
@@ -115,6 +138,94 @@ window.MmaPage = {
           ${this.card('VAT position', 'Claimable, reverse charge, and VAT kept in cost', this.renderVat(d))}
         </div>
       </div>`;
+    },
+
+    canEditRevenue() {
+        const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+        return !!org && ['owner', 'admin'].includes(org.role) && this.revenue && !this.revenue.closed;
+    },
+
+    // Revenue lines for this property and month: typed in from the PMS night audit / OTA statements, or pasted as CSV
+    renderRevenueEditor() {
+        const rv = this.revenue;
+        if (!rv) return '';
+        const edit = this.canEditRevenue();
+        const accOptions = (this.accounts || []).filter(a => a.type === 'revenue' && a.active)
+            .map(a => `<option value="${esc(a.code)}">${esc(a.code)} · ${esc(a.name)}</option>`).join('');
+        const rows = rv.lines.map(l => [
+            esc(fmtDate(l.date)), `${esc(l.account_code)} ${esc(l.account_name || '')}`, esc(l.channel || '—'), ...(rv.rooms ? [l.room_nights ?? '—'] : []),
+            fmtTHB(l.net_amount), fmtTHB(l.vat_amount), l.commission ? fmtTHB(l.commission) : '—', l.received_to === 'receivable' ? 'Receivable' : 'Bank',
+            edit ? `<button class="btn btn-ghost btn-sm" onclick="MmaPage.deleteRevenue('${esc(l._id)}')" aria-label="Delete line">✕</button>` : '',
+        ]);
+        return `
+        <div class="card no-print" style="margin-bottom:20px">
+          <div class="card-header"><div>
+            <div class="card-title">🏨 Revenue lines · ${esc(fmtMonth(this.month, { month: 'long', year: 'numeric' }))}</div>
+            <div class="card-subtitle">${rv.closed ? '🔒 Month closed: an owner must reopen it to change revenue'
+                : 'Monthly totals from your PMS night audit and OTA statements. Net = before VAT; commission = what the OTA kept.'}${rv.rooms ? ` · ${rv.rooms} rooms` : ''}</div>
+          </div></div>
+          ${this.table([['Date'], ['Account'], ['Channel'], ...(rv.rooms ? [['Room nights', 1]] : []), ['Net', 1], ['VAT', 1], ['Commission', 1], ['Paid to'], ['']], rows, 'No revenue entered yet.')}
+          ${edit ? `
+          <form style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:flex-end" onsubmit="event.preventDefault();MmaPage.addRevenue()">
+            <select class="form-input" id="revAccount" style="max-width:220px" aria-label="Account">${accOptions}</select>
+            <input class="form-input" id="revChannel" placeholder="Channel (Agoda, Walk-in…)" style="max-width:170px" maxlength="60">
+            <input class="form-input" id="revGross" placeholder="Gross incl. VAT" inputmode="decimal" style="max-width:140px" required
+              title="Total charged to guests including 7% VAT; net and VAT are worked out for you">
+            <label style="font-size:0.8rem;display:flex;gap:4px;align-items:center"><input type="checkbox" id="revNoVat"> No VAT</label>
+            <input class="form-input" id="revCommission" placeholder="OTA commission" inputmode="decimal" style="max-width:140px">
+            ${rv.rooms ? '<input class="form-input" id="revNights" placeholder="Room nights" inputmode="numeric" style="max-width:110px">' : ''}
+            <select class="form-input" id="revReceived" style="max-width:150px" aria-label="Paid to"><option value="bank">Paid to bank</option><option value="receivable">Not yet received</option></select>
+            <button class="btn btn-primary btn-sm" type="submit">+ Add line</button>
+          </form>
+          <details style="margin-top:12px">
+            <summary class="btn btn-ghost btn-sm" style="display:inline-flex">📋 Paste many lines (CSV)</summary>
+            <div style="font-size:0.8rem;color:var(--text-secondary);margin:8px 0">Header row first; columns in any order. Amounts are <strong>net of VAT</strong>; dates YYYY-MM-DD (or just the month).</div>
+            <textarea class="form-input" id="revCsv" style="height:120px;font-family:monospace;font-size:0.8rem" placeholder="date,account,channel,net,vat,commission,room_nights,received_to
+${this.month},4110,Agoda,60000,4200,9630,40,bank
+${this.month},4110,Walk-in,30000,2100,0,20,bank"></textarea>
+            <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="MmaPage.importRevenue()">Import lines</button>
+          </details>` : ''}
+        </div>`;
+    },
+
+    async addRevenue() {
+        const v = id => (document.getElementById(id)?.value || '').trim();
+        const gross = parseFloat(v('revGross').replace(/[฿,\s]/g, ''));
+        if (!Number.isFinite(gross)) { App.showToast('error', 'Enter the gross amount'); return; }
+        const noVat = document.getElementById('revNoVat')?.checked;
+        const net = noVat ? gross : Math.round((gross / 1.07) * 100) / 100;
+        try {
+            await AccountingApi.addRevenue(App.currentCompany, {
+                month: this.month, account_code: v('revAccount'), channel: v('revChannel'),
+                net_amount: net, vat_amount: Math.round((gross - net) * 100) / 100,
+                commission: v('revCommission') || 0, room_nights: v('revNights'), received_to: v('revReceived'),
+            });
+            App.showToast('success', '✅ Revenue line added');
+            this.load();
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+    },
+
+    async deleteRevenue(id) {
+        if (!confirm('Delete this revenue line?')) return;
+        try {
+            await AccountingApi.deleteRevenue(id);
+            this.load();
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+    },
+
+    async importRevenue() {
+        const csv = document.getElementById('revCsv')?.value || '';
+        try {
+            const r = await AccountingApi.importRevenue(App.currentCompany, csv);
+            App.showToast('success', `✅ Imported ${r.imported} line${r.imported === 1 ? '' : 's'}`);
+            this.load();
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
     },
 
     card(title, subtitle, body) {
@@ -175,8 +286,9 @@ window.MmaPage = {
 
     renderByProperty(d) {
         return `<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">By property</div></div></div>
-          ${this.table([['Property'], ['Status'], ['Operating costs', 1], ['Capex', 1], ['Input VAT', 1], ['Advances owed', 1], ['Cash out', 1]],
-            d.by_property.map(x => [esc(x.name), x.status === 'closed' ? '🔒 closed' : '⏳ provisional', fmtTHB(x.opex), fmtTHB(x.capex), fmtTHB(x.input_vat), fmtTHB(x.advances_outstanding), fmtTHB(x.cash_out)]))}
+          ${this.table([['Property'], ['Status'], ['Revenue', 1], ['GOP', 1], ['Occupancy', 1], ['Operating costs', 1], ['Capex', 1], ['Advances owed', 1], ['Cash out', 1]],
+            d.by_property.map(x => [esc(x.name), x.status === 'closed' ? '🔒 closed' : '⏳ provisional', x.revenue == null ? '—' : fmtTHB(x.revenue), x.gop == null ? '—' : fmtTHB(x.gop),
+              x.occupancy_pct == null ? '—' : `${x.occupancy_pct}%`, fmtTHB(x.opex), fmtTHB(x.capex), fmtTHB(x.advances_outstanding), fmtTHB(x.cash_out)]))}
         </div>`;
     },
 

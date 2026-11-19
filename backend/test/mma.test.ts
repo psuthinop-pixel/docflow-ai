@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { SEED_ACCOUNTS } from '../src/accounting/coa.js';
 import { expenseEntry, reimbursementEntry, type PostingContext, type PostingExpense } from '../src/accounting/journal.js';
 import { buildPack, consolidate, type PackInput } from '../src/accounting/mma.js';
+import { revenueEntry } from '../src/accounting/journal.js';
 import { allowedNumbers, enforce, unsupportedNumbers } from '../src/accounting/commentary.js';
 
 const accounts = new Map(SEED_ACCOUNTS.map((a) => [a.code, { code: a.code, name: a.name, role: a.role ?? '', type: a.type, active: true }]));
@@ -34,6 +35,8 @@ const input = (over: Partial<PackInput> = {}): PackInput => ({
   advancesOutstanding: [{ paid_by: 'Lek', count: 1, total: 535, oldest_month: '2026-11' }],
   vatNotClaimable: [{ reason: 'fuel', count: 1, vat: 35 }],
   capexYtd: [{ category: 'Asset', amount: 10000 }],
+  revenueLines: [],
+  rooms: null,
   ...over,
 });
 
@@ -93,4 +96,79 @@ test('commentary guard: figures from the pack pass, invented figures are dropped
   assert.equal(commentary.headline, 'November closed with operating costs of ฿1,535.');
   assert.deepEqual(commentary.highlights, ['Capex of ฿10,000 for FF&E.']);
   assert.deepEqual(removed, ['Savings of ฿465 vs October.']);
+});
+
+const revLine = (f: Record<string, unknown>) => revenueEntry({ id: 'r', date: '2026-11-30', account_code: '4110', channel: 'Agoda', description: '',
+  net_amount: 0, vat_amount: 0, commission: 0, received_to: 'bank', ...f } as never, ctx);
+
+test('revenue, GOP and hotel KPIs (occupancy, ADR, RevPAR)', () => {
+  const base = input();
+  const p = buildPack(input({
+    rooms: 20,
+    entries: [...base.entries,
+      revLine({ net_amount: 60000, vat_amount: 4200, commission: 9630 }),
+      revLine({ channel: 'Walk-in', net_amount: 30000, vat_amount: 2100 }),
+      revLine({ account_code: '4190', channel: 'Laundry', net_amount: 1000, vat_amount: 70 })],
+    prevEntries: [...base.prevEntries, revLine({ date: '2026-10-31', net_amount: 80000, vat_amount: 5600 })],
+    revenueLines: [
+      { channel: 'Agoda', net_amount: 60000, commission: 9630, room_nights: 40 },
+      { channel: 'Walk-in', net_amount: 30000, commission: 0, room_nights: 20 },
+      { channel: 'Laundry', net_amount: 1000, commission: 0, room_nights: null },
+    ],
+  }));
+  const r = p.revenue!;
+  assert.equal(r.total, 91000);
+  assert.equal(r.prev, 80000);
+  assert.equal(r.change_pct, 13.8);
+  assert.equal(r.room_nights, 60);
+  assert.equal(r.room_revenue, 90000);
+  assert.equal(r.days, 30);
+  assert.equal(r.occupancy_pct, 10);        // 60 / (20 × 30)
+  assert.equal(r.adr, 1500);                // 90,000 / 60
+  assert.equal(r.revpar, 150);              // 90,000 / 600
+  assert.deepEqual(r.by_channel.map((c) => [c.channel, c.net, c.commission]), [['Agoda', 60000, 9630], ['Walk-in', 30000, 0], ['Laundry', 1000, 0]]);
+  // Commission is an operating cost: 1,535 + 9,630
+  assert.equal(p.summary.opex, 11165);
+  assert.equal(p.summary.revenue, 91000);
+  assert.equal(p.summary.gop, 79835);
+  assert.equal(p.summary.gop_margin_pct, 87.7);
+  assert.equal(p.summary.gop_prev, 78000);  // 80,000 − 2,000
+});
+
+test('no revenue anywhere: revenue section stays null; group revenue sums properties', () => {
+  assert.equal(buildPack(input()).revenue, null);
+  assert.equal(buildPack(input()).summary.gop, null);
+  const withRev = (id: string, rooms: number, nights: number, net: number) => buildPack(input({
+    organization: { id, name: id }, rooms,
+    entries: [revLine({ net_amount: net })],
+    revenueLines: [{ channel: 'Direct', net_amount: net, commission: 0, room_nights: nights }],
+  }));
+  const g = consolidate([withRev('A', 10, 150, 150000), withRev('B', 20, 300, 240000)], '2026-11');
+  assert.equal(g.revenue!.total, 390000);
+  assert.equal(g.revenue!.rooms, 30);
+  assert.equal(g.revenue!.occupancy_pct, 50);   // 450 / 900
+  assert.equal(g.revenue!.adr, 866.67);         // 390,000 / 450
+  assert.equal(g.revenue!.revpar, 433.33);      // 390,000 / 900
+  assert.deepEqual(g.by_property!.map((x) => [x.name, x.revenue, x.occupancy_pct]), [['A', 150000, 50], ['B', 240000, 50]]);
+});
+
+test('no rooms set (not a hotel, e.g. the management company): no hotel ratios; group ratios use hotels only', () => {
+  const prop = (id: string, rooms: number | null, nights: number, net: number) => buildPack(input({
+    organization: { id, name: id }, rooms,
+    entries: [revLine({ net_amount: net })],
+    revenueLines: [{ channel: 'Direct', net_amount: net, commission: 0, room_nights: nights }],
+  }));
+  const serve = prop('Serve Property', null, 10, 50000);   // room nights typed by mistake still don't produce ratios
+  assert.equal(serve.revenue!.total, 50000);
+  assert.equal(serve.summary.gop, 50000);        // no costs in this fixture
+  assert.deepEqual([serve.revenue!.occupancy_pct, serve.revenue!.adr, serve.revenue!.revpar], [null, null, null]);
+
+  const g = consolidate([serve, prop('Atrium', 20, 300, 240000)], '2026-11');
+  assert.equal(g.revenue!.total, 290000);       // all revenue in the totals and GOP
+  assert.equal(g.revenue!.rooms, 20);
+  assert.equal(g.revenue!.room_nights, 300);    // Serve Property's 10 excluded
+  assert.equal(g.revenue!.occupancy_pct, 50);   // 300 / (20 × 30)
+  assert.equal(g.revenue!.adr, 800);            // 240,000 / 300
+  assert.equal(g.revenue!.revpar, 400);
+  assert.deepEqual(g.by_property!.map((x) => [x.name, x.occupancy_pct]), [['Serve Property', null], ['Atrium', 50]]);
 });

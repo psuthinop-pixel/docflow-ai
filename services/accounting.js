@@ -31,6 +31,12 @@ window.AccountingApi = {
         return this.request('GET', `/mma?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },
     mmaCommentary(orgId, month, language) { return this.request('POST', '/mma/commentary', { organization_id: orgId, month, language }); },
+    revenue(orgId, month) {
+        return this.request('GET', `/revenue?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
+    },
+    addRevenue(orgId, line) { return this.request('POST', '/revenue', { organization_id: orgId, ...line }); },
+    deleteRevenue(id) { return this.request('DELETE', `/revenue/${encodeURIComponent(id)}`); },
+    importRevenue(orgId, csv) { return this.request('POST', '/revenue/import', { organization_id: orgId, csv }); },
     readiness(orgId, month) {
         return this.request('GET', `/readiness?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },

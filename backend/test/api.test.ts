@@ -463,7 +463,7 @@ test('accounting phase A: seeded chart, category mapping, month readiness', asyn
   const codes = (list: { code: string }[]) => list.map((x) => x.code).sort();
   assert.deepEqual(codes(r.blockers), ['drafts', 'uncategorised', 'unmapped_categories']);
   assert.deepEqual(r.blockers.find((x: { code: string }) => x.code === 'unmapped_categories').categories.sort(), ['Office Supplies', 'Transport']);
-  assert.deepEqual(codes(r.warnings), ['advance_no_person', 'capex_default_account', 'not_approved']);
+  assert.deepEqual(codes(r.warnings), ['advance_no_person', 'capex_default_account', 'no_revenue', 'not_approved']);
   assert.equal((await call('GET', `/accounting/readiness?${q}&month=2026-13`, a)).status, 400);
 
   // Map, then rename an account code: the mapping follows
@@ -692,4 +692,89 @@ test('accounting phase D: monthly pack per property and for the group, Excel, co
   assert.equal((await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-13`, a)).status, 400);
   const c = await login('c@test.com');
   assert.equal((await call('GET', `/accounting/mma?organization_id=${p1._id}&month=2026-09`, c)).status, 403);
+});
+
+test('phase E: revenue lines, CSV import, posting, lock, P&L pack with KPIs, chart upgrade', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Revenue Hotel', categories: ['Office Supplies'] })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+
+  // A chart seeded before phase E (no receivable account, untagged 5130) is upgraded on first use
+  await call('GET', `/accounting/accounts?organization_id=${org._id}`, a);
+  await db.query(`DELETE FROM accounts WHERE organization_id = $1 AND code = '1130'`, [org._id]);
+  await db.query(`UPDATE accounts SET role = '' WHERE organization_id = $1 AND code = '5130'`, [org._id]);
+  const accts = (await call('GET', `/accounting/accounts?organization_id=${org._id}`, a)).body as { code: string; role: string }[];
+  assert.equal(accts.find((x) => x.code === '1130')?.role, 'receivable');
+  assert.equal(accts.find((x) => x.code === '5130')?.role, 'commission');
+
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Office Supplies', account_code: '6140' }] });
+  assert.equal((await call('PUT', `/organizations/${org._id}`, a, { rooms: 'many' })).status, 400);
+  assert.equal((await call('PUT', `/organizations/${org._id}`, a, { rooms: 20 })).status, 200);
+
+  // Enter revenue: owner/admin only, validated
+  const line = { organization_id: org._id, month: '2026-11', account_code: '4110', channel: 'Agoda', net_amount: 60000, vat_amount: 4200, commission: 9630, room_nights: 40 };
+  assert.equal((await call('POST', '/accounting/revenue', c, line)).status, 403);
+  assert.equal((await call('POST', '/accounting/revenue', a, { ...line, account_code: '6140' })).status, 400);
+  assert.equal((await call('POST', '/accounting/revenue', a, { ...line, commission: 999999 })).status, 400);
+  const agoda = await call('POST', '/accounting/revenue', a, line);
+  assert.equal(agoda.status, 201);
+  assert.equal(agoda.body.date, '2026-11-30');      // a bare month is dated at month end
+
+  // CSV import: all or nothing
+  const bad = await call('POST', '/accounting/revenue/import', a, { organization_id: org._id, csv: 'date,account,channel,net,vat,room_nights\n2026-11-15,4110,Walk-in,30000,2100,20\n2026-11-15,9999,X,1,0,' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.detail, /Line 3/);
+  const csv = 'date,account,channel,description,net,vat,commission,room_nights,received_to\n' +
+    '2026-11-15,4110,Walk-in,,"30,000",2100,0,20,bank\n2026-11-20,4190,Laundry,Guest laundry,1000,70,,,receivable';
+  const imp = await call('POST', '/accounting/revenue/import', a, { organization_id: org._id, csv });
+  assert.equal(imp.status, 201);
+  assert.equal(imp.body.imported, 2);
+  const list = (await call('GET', `/accounting/revenue?organization_id=${org._id}&month=2026-11`, c)).body;
+  assert.equal(list.lines.length, 3);
+  assert.equal(list.rooms, 20);
+
+  // A receipt so the month has costs
+  await call('POST', '/expenses', a, { organization_id: org._id, currency: 'THB', status: 'approved', date: '2026-11-05', category: 'Office Supplies',
+    vendor_taxid: '0107537000521', total: 1070, tax_amount: 70, payment_source: 'company', vendor_name: 'Makro' });
+
+  // Journal: revenue entries first, balanced
+  const j = (await call('GET', `/accounting/journal?organization_id=${org._id}&month=2026-11`, a)).body;
+  assert.equal(j.ready, true);
+  assert.equal(j.totals.balanced, true);
+  assert.equal(j.entries.filter((e: { kind: string }) => e.kind === 'revenue').length, 3);
+  const tb = Object.fromEntries(j.trial_balance.map((x: { account_code: string; debit: number; credit: number }) => [x.account_code, [x.debit, x.credit]]));
+  assert.deepEqual(tb['4110'], [0, 90000]);
+  assert.deepEqual(tb['2150'], [0, 6370]);
+  assert.deepEqual(tb['5130'], [9630, 0]);
+  assert.deepEqual(tb['1130'], [1070, 0]);
+
+  // Pack: P&L with KPIs
+  const pack = (await call('GET', `/accounting/mma?organization_id=${org._id}&month=2026-11`, a)).body;
+  assert.equal(pack.summary.revenue, 91000);
+  assert.equal(pack.summary.opex, 1000 + 9630);
+  assert.equal(pack.summary.gop, 80370);
+  assert.equal(pack.revenue.occupancy_pct, 10);
+  assert.equal(pack.revenue.adr, 1500);
+  const res = await fetch(`${base}/accounting/mma.xlsx?organization_id=${org._id}&month=2026-11`, { headers: { Authorization: `Bearer ${a}` } });
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+  assert.ok(book.getWorksheet('Revenue'));
+  assert.equal(book.getWorksheet('Summary')!.getCell('A6').value, 'Revenue');
+  assert.equal(book.getWorksheet('Summary')!.getCell('B6').value, 91000);
+
+  // No revenue in a month with costs → a warning, not a blocker
+  await call('POST', '/expenses', a, { organization_id: org._id, currency: 'THB', status: 'approved', date: '2026-12-02', category: 'Office Supplies',
+    vendor_taxid: '0107537000521', total: 535, tax_amount: 35, payment_source: 'company', vendor_name: 'Makro' });
+  const dec = (await call('GET', `/accounting/readiness?organization_id=${org._id}&month=2026-12`, a)).body;
+  assert.ok(dec.warnings.some((w: { code: string }) => w.code === 'no_revenue'));
+
+  // Close November: revenue is locked
+  assert.equal((await call('POST', '/accounting/periods/close', a, { organization_id: org._id, month: '2026-11' })).status, 200);
+  assert.equal((await call('PUT', `/accounting/revenue/${agoda.body._id}`, a, { net_amount: 1 })).status, 423);
+  assert.equal((await call('DELETE', `/accounting/revenue/${agoda.body._id}`, a)).status, 423);
+  assert.equal((await call('POST', '/accounting/revenue', a, line)).status, 423);
+  const log = (await call('GET', `/accounting/audit?organization_id=${org._id}&month=2026-11`, a)).body as { action: string; entity: string }[];
+  assert.ok(log.some((x) => x.entity === 'revenue' && x.action === 'import'));
 });

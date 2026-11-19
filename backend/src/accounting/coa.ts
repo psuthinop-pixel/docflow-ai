@@ -7,7 +7,7 @@ export type AccountRole =
   | '' | 'cash' | 'bank' | 'input_vat' | 'input_vat_pending' | 'wht_prepaid'
   | 'fixed_asset' | 'accum_dep' | 'construction'
   | 'ap' | 'advances_payable' | 'director_loan' | 'output_vat' | 'pp36_payable' | 'wht_payable'
-  | 'dep_expense';
+  | 'dep_expense' | 'receivable' | 'commission';
 
 export interface SeedAccount {
   code: string;
@@ -27,6 +27,7 @@ export const SEED_ACCOUNTS: SeedAccount[] = [
   { code: '1111', name: 'Cash on hand', name_th: 'เงินสด', type: 'asset', role: 'cash' },
   { code: '1112', name: 'Bank - current account', name_th: 'เงินฝากธนาคาร - กระแสรายวัน', type: 'asset', role: 'bank' },
   { code: '1113', name: 'Bank - savings account', name_th: 'เงินฝากธนาคาร - ออมทรัพย์', type: 'asset', role: 'bank' },
+  { code: '1130', name: 'Accounts receivable - OTA & guests', name_th: 'ลูกหนี้การค้า - OTA และลูกค้า', type: 'asset', role: 'receivable' },
   { code: '1150', name: 'Input VAT', name_th: 'ภาษีซื้อ', type: 'asset', role: 'input_vat' },
   { code: '1151', name: 'Input VAT - not yet due', name_th: 'ภาษีซื้อยังไม่ถึงกำหนด', type: 'asset', role: 'input_vat_pending' },
   { code: '1160', name: 'Withholding tax prepaid', name_th: 'ภาษีเงินได้ถูกหัก ณ ที่จ่าย', type: 'asset', role: 'wht_prepaid' },
@@ -55,11 +56,12 @@ export const SEED_ACCOUNTS: SeedAccount[] = [
   // 4 Revenue
   { code: '4110', name: 'Room revenue', name_th: 'รายได้ค่าห้องพัก', type: 'revenue' },
   { code: '4120', name: 'Food & beverage revenue', name_th: 'รายได้อาหารและเครื่องดื่ม', type: 'revenue' },
+  { code: '4150', name: 'Service charge income', name_th: 'รายได้ค่าบริการ', type: 'revenue' },
   { code: '4190', name: 'Other income', name_th: 'รายได้อื่น', type: 'revenue' },
   // 5 Cost of sales (rooms)
   { code: '5110', name: 'Guest supplies & amenities', name_th: 'วัสดุสิ้นเปลืองห้องพัก', type: 'expense' },
   { code: '5120', name: 'Laundry', name_th: 'ค่าซักรีด', type: 'expense' },
-  { code: '5130', name: 'OTA & booking commission', name_th: 'ค่านายหน้าการจอง', type: 'expense' },
+  { code: '5130', name: 'OTA & booking commission', name_th: 'ค่านายหน้าการจอง', type: 'expense', role: 'commission' },
   // 6 Operating expenses
   { code: '6110', name: 'Salaries & wages', name_th: 'เงินเดือนและค่าจ้าง', type: 'expense' },
   { code: '6120', name: 'Electricity', name_th: 'ค่าไฟฟ้า', type: 'expense' },

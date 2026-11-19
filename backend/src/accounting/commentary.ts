@@ -27,7 +27,7 @@ export function facts(pack: Pack) {
     month: pack.month,
     status: pack.status,
     properties: pack.organizations.map((o) => o.name),
-    revenue: 'not captured yet: do not discuss revenue, profit or margins',
+    revenue: pack.revenue ?? 'not captured yet: do not discuss revenue, profit or margins',
     summary: pack.summary,
     opex_by_account: pack.opex.slice(0, 15),
     top_vendors: pack.top_vendors,
@@ -99,7 +99,9 @@ async function ask(pack: Pack, language: 'en' | 'th', feedback?: string): Promis
       'concise, high signal, focused on cash timing, cost control, capex and things that need a decision. ' +
       'Use only the figures in the data. Quote figures exactly as given (you may round baht to whole numbers and add thousand separators). ' +
       'Do not calculate new totals, differences or ratios that are not in the data; percentages are provided where useful. ' +
-      'Revenue is not captured yet, so never mention revenue, profit, margin or EBITDA. ' +
+      (pack.revenue
+        ? 'Revenue and gross operating profit (GOP = revenue − operating costs, before depreciation) are in the data, with occupancy, ADR and RevPAR where rooms are set; use them. Depreciation is not booked yet, so do not call GOP net profit. '
+        : 'Revenue is not captured yet, so never mention revenue, profit, margin or EBITDA. ') +
       'If the month is provisional, say so in the headline. ' +
       (language === 'th' ? 'Write in Thai; keep account names and vendor names as given.' : 'Write in English.'),
     messages: [{
