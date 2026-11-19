@@ -29,6 +29,7 @@ export function facts(pack: Pack) {
     properties: pack.organizations.map((o) => o.name),
     revenue: pack.revenue ?? 'not captured yet: do not discuss revenue, profit or margins',
     summary: pack.summary,
+    budget: pack.budget ?? 'no budget set for this month',
     opex_by_account: pack.opex.slice(0, 15),
     top_vendors: pack.top_vendors,
     capex_items: pack.capex.items.slice(0, 15),
@@ -103,6 +104,7 @@ async function ask(pack: Pack, language: 'en' | 'th', feedback?: string): Promis
         ? 'Revenue and gross operating profit (GOP = revenue − operating costs, before depreciation) are in the data, with occupancy, ADR and RevPAR where rooms are set; use them. Depreciation is not booked yet, so do not call GOP net profit. '
         : 'Revenue is not captured yet, so never mention revenue, profit, margin or EBITDA. ') +
       'If the month is provisional, say so in the headline. ' +
+      'When a budget is given, compare against it: variance = actual − budget; for costs a positive variance is unfavourable, for revenue and GOP favourable. ' +
       (language === 'th' ? 'Write in Thai; keep account names and vendor names as given.' : 'Write in English.'),
     messages: [{
       role: 'user',

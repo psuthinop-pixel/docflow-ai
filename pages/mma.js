@@ -9,6 +9,7 @@ window.MmaPage = {
     language: 'en',
     generating: false,
     accounts: [],
+    budget: null,         // GET /accounting/budget for this property and the month's year
     revenue: null,        // GET /accounting/revenue for this property and month (lines you can edit)
 
     REASONS: { fuel: 'Fuel (passenger car): VAT kept in cost', excluded: 'Marked not claimable', missing_tax_id: 'No 13-digit seller tax ID' },
@@ -29,7 +30,7 @@ window.MmaPage = {
     render(companyId) {
         if (!this.month) this.month = this.defaultMonth();
         const key = `${this.orgParam()}|${this.month}`;
-        if (this.loadedKey !== key) { this.loadedKey = key; this.load(); }
+        if (this.loadedKey !== key) { this.loadedKey = key; this.budgetDraft = null; this.load(); }
         return `<div id="mmaPage">${this.renderBody()}</div>`;
     },
 
@@ -40,13 +41,14 @@ window.MmaPage = {
         this.refresh();
         try {
             const single = this.scope !== 'all';
-            const [data, revenue, accounts] = await Promise.all([
+            const [data, revenue, accounts, budget] = await Promise.all([
                 AccountingApi.mma(this.orgParam(), this.month),
                 single ? AccountingApi.revenue(this.orgParam(), this.month) : null,
                 single ? AccountingApi.accounts(this.orgParam()) : [],
+                single ? AccountingApi.budget(this.orgParam(), this.month.slice(0, 4)) : null,
             ]);
             if (key !== this.loadedKey) return;
-            Object.assign(this, { data, revenue, accounts });
+            Object.assign(this, { data, revenue, accounts, budget });
         } catch (error) {
             this.error = error.message;
             this.data = null;
@@ -61,8 +63,8 @@ window.MmaPage = {
         if (el && App.currentPage === 'mma') el.innerHTML = this.renderBody();
     },
 
-    setScope(scope) { this.scope = scope; this.render(); },
-    setMonth(month) { if (/^\d{4}-\d{2}$/.test(month)) { this.month = month; this.render(); } },
+    setScope(scope) { this.scope = scope; this.budgetDraft = null; this.render(); },
+    setMonth(month) { if (/^\d{4}-\d{2}$/.test(month)) { this.month = month; this.budgetDraft = null; this.render(); } },
 
     renderBody() {
         const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
@@ -96,9 +98,13 @@ window.MmaPage = {
         const s = d.summary;
         const tile = (icon, label, value, note, color, noteColor = 'var(--text-secondary)') => ReportsPage.tile(icon, label, value, note, noteColor, color);
         const r = d.revenue;
+        const b = d.budget;
         const revTiles = r ? `
-          ${tile('🏨', 'Revenue', fmtTHB(r.total), r.change_pct == null ? 'No revenue last month' : `${r.change_pct > 0 ? '↑' : '↓'} ${Math.abs(r.change_pct)}% vs last month (${fmtTHB(r.prev)})`, 'green', r.change_pct > 0 ? 'var(--green)' : 'var(--red)')}
-          ${tile('📈', 'GOP', fmtTHB(s.gop), s.gop_margin_pct == null ? '' : `${s.gop_margin_pct}% margin · before depreciation`, 'accent', s.gop < 0 ? 'var(--red)' : 'var(--text-secondary)')}
+          ${b && b.revenue_var != null
+            ? tile('🏨', 'Revenue', fmtTHB(r.total), this.vsBudget(b.revenue_var, b.revenue_var_pct, b.revenue, false), 'green', b.revenue_var >= 0 ? 'var(--green)' : 'var(--red)')
+            : tile('🏨', 'Revenue', fmtTHB(r.total), r.change_pct == null ? 'No revenue last month' : `${r.change_pct > 0 ? '↑' : '↓'} ${Math.abs(r.change_pct)}% vs last month (${fmtTHB(r.prev)})`, 'green', r.change_pct > 0 ? 'var(--green)' : 'var(--red)')}
+          ${tile('📈', 'GOP', fmtTHB(s.gop), [s.gop_margin_pct == null ? '' : `${s.gop_margin_pct}% margin`, b && b.gop_var != null ? this.vsBudget(b.gop_var, b.gop_var_pct, b.gop, false) : 'before depreciation'].filter(Boolean).join(' · '), 'accent',
+              b && b.gop_var != null ? (b.gop_var >= 0 ? 'var(--green)' : 'var(--red)') : s.gop < 0 ? 'var(--red)' : 'var(--text-secondary)')}
           ${r.rooms ? tile('🛏', 'Occupancy', r.occupancy_pct == null ? '—' : `${r.occupancy_pct}%`, r.adr == null ? 'No room nights entered' : `ADR ${fmtTHB(r.adr)}${r.revpar != null ? ` · RevPAR ${fmtTHB(r.revpar)}` : ''}${d.by_property ? ' · hotels only' : ''}`, 'cyan') : ''}` : '';
         const change = s.opex_change_pct == null ? 'No costs posted last month' : `${s.opex_change_pct > 0 ? '↑' : '↓'} ${Math.abs(s.opex_change_pct)}% vs last month (${fmtTHB(s.opex_prev)})`;
         return header + `
@@ -106,7 +112,9 @@ window.MmaPage = {
         ${this.renderStatus(d)}
         <div class="kpi-grid">
           ${revTiles}
-          ${tile('💰', 'Operating costs', fmtTHB(s.opex), change, 'accent', s.opex_change_pct > 0 ? 'var(--red)' : 'var(--green)')}
+          ${b && b.opex_var != null
+            ? tile('💰', 'Operating costs', fmtTHB(s.opex), this.vsBudget(b.opex_var, b.opex_var_pct, b.opex, true), 'accent', b.opex_var > 0 ? 'var(--red)' : 'var(--green)')
+            : tile('💰', 'Operating costs', fmtTHB(s.opex), change, 'accent', s.opex_change_pct > 0 ? 'var(--red)' : 'var(--green)')}
           ${tile('🏗', 'Capex', fmtTHB(s.capex), `${fmtTHB(s.capex_ytd)} year to date`, 'cyan')}
           ${tile('🧾', 'Input VAT claimable', fmtTHB(s.input_vat), s.vat_not_claimable ? `${fmtTHB(s.vat_not_claimable)} not claimable` : 'All VAT claimable', 'green')}
           ${tile('🙋', 'Advances owed', fmtTHB(s.advances_outstanding), `${fmtTHB(s.advances_opened)} paid out · ${fmtTHB(s.advances_repaid)} repaid`, 'amber')}
@@ -119,12 +127,15 @@ window.MmaPage = {
         ${d.by_property ? this.renderByProperty(d) : ''}
         ${r ? `<div class="grid-2" style="margin-bottom:20px">
           ${this.card('Revenue by account', 'This month vs last month and the same month last year',
-              this.table([['Account'], ['This month', 1], ['Last month', 1], ['Last year', 1]], r.by_account.map(x => [`${esc(x.code)} ${esc(x.name)}`, fmtTHB(x.amount), fmtTHB(x.prev), x.ly ? fmtTHB(x.ly) : '—'])))}
+              this.table([['Account'], ['This month', 1], ...(b ? [['Budget', 1], ['Variance', 1]] : [['Last month', 1], ['Last year', 1]])],
+                r.by_account.map(x => [`${esc(x.code)} ${esc(x.name)}`, fmtTHB(x.amount), ...(b
+                  ? [x.budget == null ? '—' : fmtTHB(x.budget), this.variance(x.variance, false)]
+                  : [fmtTHB(x.prev), x.ly ? fmtTHB(x.ly) : '—'])])))}
           ${this.card('Revenue by channel', [r.rooms ? `${r.room_nights} room nights` : '', r.commission ? `${fmtTHB(r.commission)} OTA commission` : ''].filter(Boolean).join(' · ') || 'Net of VAT',
               this.table([['Channel'], ...(r.rooms ? [['Room nights', 1]] : []), ['Net revenue', 1], ['Commission', 1]],
                 r.by_channel.map(c => [esc(c.channel), ...(r.rooms ? [c.room_nights || '—'] : []), fmtTHB(c.net), c.commission ? fmtTHB(c.commission) : '—'])))}
         </div>` : ''}
-        ${this.scope !== 'all' ? this.renderRevenueEditor() : ''}
+        ${this.scope !== 'all' ? this.renderRevenueEditor() + this.renderBudgetEditor() : ''}
         <div class="grid-2" style="margin-bottom:20px">
           ${this.card('Operating costs by account', 'This month vs last month and the same month last year', this.renderOpex(d))}
           ${this.card('Top vendors', 'Operating costs and capex, net of claimable VAT', this.renderVendors(d))}
@@ -293,9 +304,116 @@ ${this.month},4110,Walk-in,30000,2100,0,20,bank"></textarea>
     },
 
     renderOpex(d) {
+        if (d.budget) {
+            return this.table([['Account'], ['This month', 1], ['Budget', 1], ['Variance', 1], ['Last month', 1]],
+                d.opex.map(o => [`${esc(o.code)} ${esc(o.name)}`, fmtTHB(o.amount), o.budget == null ? '—' : fmtTHB(o.budget), this.variance(o.variance, true), fmtTHB(o.prev)]),
+                'No operating costs posted.');
+        }
         return this.table([['Account'], ['This month', 1], ['Last month', 1], ['Change', 1], ['Last year', 1]],
             d.opex.map(o => [`${esc(o.code)} ${esc(o.name)}`, fmtTHB(o.amount), fmtTHB(o.prev), this.pct(o.change_pct), o.ly ? fmtTHB(o.ly) : '—']),
             'No operating costs posted.');
+    },
+
+    /** Variance = actual − budget; for costs over budget is bad (red), for revenue/GOP under budget is bad. */
+    variance(v, isCost) {
+        if (v == null) return '—';
+        const bad = isCost ? v > 0 : v < 0;
+        return `<span style="color:${v === 0 ? 'inherit' : bad ? 'var(--red)' : 'var(--green)'}">${v > 0 ? '+' : ''}${fmtTHB(v)}</span>`;
+    },
+
+    vsBudget(v, pctV, budget, isCost) {
+        const word = isCost ? (v > 0 ? 'over' : 'under') : (v >= 0 ? 'above' : 'below');
+        return `${fmtTHB(Math.abs(v))}${pctV == null ? '' : ` (${Math.abs(pctV)}%)`} ${word} budget of ${fmtTHB(budget)}`;
+    },
+
+    // Budget for the month's year: one row per account, twelve months. Owner/admin edit; paste from Excel for speed.
+    renderBudgetEditor() {
+        const bd = this.budget;
+        if (!bd) return '';
+        const org = (App.organizations || []).find(o => (o._id || o.id) === App.currentCompany);
+        const edit = !!org && ['owner', 'admin'].includes(org.role);
+        const MM = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+        const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const lines = this.budgetDraft || bd.lines.map(l => ({ account_code: l.account_code, name: l.name, type: l.type, months: { ...l.months } }));
+        this.budgetDraft = lines;
+        const cell = (l, i, mm) => edit
+            ? `<input class="form-input" style="min-width:84px;padding:4px 6px;text-align:right" inputmode="decimal" value="${l.months[mm] ?? ''}" onchange="MmaPage.setBudgetCell(${i}, '${mm}', this.value)">`
+            : (l.months[mm] != null ? fmtTHB(l.months[mm]) : '—');
+        const total = l => MM.reduce((t, mm) => t + (Number(l.months[mm]) || 0), 0);
+        const used = new Set(lines.map(l => l.account_code));
+        const addable = (bd.accounts || []).filter(a => !used.has(a.code));
+        return `
+        <details class="card no-print" style="margin-bottom:20px" ${this.budgetOpen ? 'open' : ''} ontoggle="MmaPage.budgetOpen = this.open">
+          <summary style="cursor:pointer"><span class="card-title">📋 Budget ${esc(bd.year)}</span>
+            <span class="card-subtitle"> · ${lines.length ? `${lines.length} account${lines.length === 1 ? '' : 's'}` : 'not set yet'} · amounts excl. VAT; costs are positive</span></summary>
+          <div style="overflow-x:auto;margin-top:10px">
+            <table class="table" style="font-size:0.8rem;min-width:1100px">
+              <thead><tr><th style="text-align:left">Account</th>${names.map(n => `<th style="text-align:right">${n}</th>`).join('')}<th style="text-align:right">Year</th></tr></thead>
+              <tbody>${lines.map((l, i) => `<tr>
+                <td style="white-space:nowrap">${l.type === 'revenue' ? '🟢' : '🔴'} ${esc(l.account_code)} ${esc(l.name)}</td>
+                ${MM.map(mm => `<td style="text-align:right">${cell(l, i, mm)}</td>`).join('')}
+                <td style="text-align:right"><strong>${fmtTHB(total(l))}</strong></td></tr>`).join('') || `<tr><td colspan="14" style="color:var(--text-muted)">No budget for ${esc(bd.year)} yet.</td></tr>`}</tbody>
+            </table>
+          </div>
+          ${edit ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+            <select class="form-input" id="budgetAdd" style="max-width:280px" aria-label="Add an account">
+              <option value="">+ Add an account…</option>
+              ${addable.map(a => `<option value="${esc(a.code)}">${a.type === 'revenue' ? '🟢' : '🔴'} ${esc(a.code)} · ${esc(a.name)}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="MmaPage.addBudgetAccount()">Add</button>
+            <button class="btn btn-primary btn-sm" onclick="MmaPage.saveBudget()">💾 Save budget</button>
+            <button class="btn btn-ghost btn-sm" onclick="MmaPage.budgetDraft = null; MmaPage.refresh()">Undo changes</button>
+          </div>
+          <details style="margin-top:10px">
+            <summary class="btn btn-ghost btn-sm" style="display:inline-flex">📋 Paste from Excel (CSV)</summary>
+            <div style="font-size:0.8rem;color:var(--text-secondary);margin:8px 0">Header: <code>account,jan,feb,…,dec</code>. Accounts you paste replace their ${esc(bd.year)} budget; others are kept.</div>
+            <textarea class="form-input" id="budgetCsv" style="height:110px;font-family:monospace;font-size:0.8rem" placeholder="account,jan,feb,mar,apr,may,jun,jul,aug,sep,oct,nov,dec
+4110,1200000,1100000,1300000,…
+6120,80000,78000,82000,…"></textarea>
+            <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="MmaPage.importBudget()">Import budget</button>
+          </details>` : ''}
+        </details>`;
+    },
+
+    setBudgetCell(i, mm, value) {
+        const n = value.trim() === '' ? undefined : Number(value.replace(/[฿,\s]/g, ''));
+        if (n === undefined) delete this.budgetDraft[i].months[mm];
+        else if (Number.isFinite(n)) this.budgetDraft[i].months[mm] = n;
+    },
+
+    addBudgetAccount() {
+        const code = document.getElementById('budgetAdd')?.value;
+        const acc = (this.budget?.accounts || []).find(a => a.code === code);
+        if (!acc) return;
+        this.budgetDraft.push({ account_code: acc.code, name: acc.name, type: acc.type, months: {} });
+        this.budgetOpen = true;
+        this.refresh();
+    },
+
+    async saveBudget() {
+        try {
+            await AccountingApi.saveBudget(App.currentCompany, this.budget.year,
+                this.budgetDraft.map(l => ({ account: l.account_code, months: l.months })));
+            this.budgetDraft = null;
+            this.budgetOpen = true;
+            App.showToast('success', '✅ Budget saved');
+            this.load();
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
+    },
+
+    async importBudget() {
+        try {
+            await AccountingApi.importBudget(App.currentCompany, this.budget.year, document.getElementById('budgetCsv')?.value || '');
+            this.budgetDraft = null;
+            this.budgetOpen = true;
+            App.showToast('success', '✅ Budget imported');
+            this.load();
+        } catch (error) {
+            App.showToast('error', error.message);
+        }
     },
 
     renderVendors(d) {

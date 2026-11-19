@@ -27,7 +27,7 @@ export interface PackInput {
 
 export interface RevenueSection {
   total: number; prev: number; ly: number; change_pct: number | null; yoy_pct: number | null;
-  by_account: { code: string; name: string; amount: number; prev: number; ly: number }[];
+  by_account: { code: string; name: string; amount: number; prev: number; ly: number; budget?: number | null; variance?: number | null }[];
   by_channel: { channel: string; net: number; commission: number; room_nights: number }[];
   commission: number; room_nights: number; room_revenue: number;
   rooms: number | null; days: number; occupancy_pct: number | null; adr: number | null; revpar: number | null;
@@ -41,13 +41,15 @@ export interface Pack {
   closed_by: string | null;
   checklist: { ready: boolean; blockers: PackInput['blockers']; warnings: PackInput['warnings'] };
   revenue: RevenueSection | null;
+  /** Set when the month has a budget (Phase E2) */
+  budget?: import('./budget.js').BudgetSummary;
   summary: {
     opex: number; opex_prev: number; opex_ly: number; opex_change_pct: number | null; opex_yoy_pct: number | null;
     capex: number; capex_ytd: number; input_vat: number; pp36_vat: number; vat_not_claimable: number;
     advances_opened: number; advances_repaid: number; advances_outstanding: number; cash_out: number; entries: number;
     revenue: number | null; gop: number | null; gop_margin_pct: number | null; gop_prev: number | null;
   };
-  opex: { code: string; name: string; amount: number; prev: number; ly: number; change_pct: number | null; share_pct: number }[];
+  opex: { code: string; name: string; amount: number; prev: number; ly: number; change_pct: number | null; share_pct: number; budget?: number | null; variance?: number | null; variance_pct?: number | null }[];
   top_vendors: { vendor: string; amount: number; count: number }[];
   capex: { items: { date: string; vendor: string; code: string; name: string; amount: number; property?: string }[]; ytd: { category: string; amount: number }[] };
   advances: { outstanding: { paid_by: string; count: number; total: number; oldest_month: string; property?: string }[] };

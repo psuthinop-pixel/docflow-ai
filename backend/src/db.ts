@@ -189,6 +189,16 @@ const SCHEMA = [
     updated_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_revenue_org ON revenue_entries(organization_id, date)`,
+  // Budgets (Phase E2): monthly amount per revenue/expense account, positive for both
+  `CREATE TABLE IF NOT EXISTS budgets (
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    account_code TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (organization_id, month, account_code)
+  )`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

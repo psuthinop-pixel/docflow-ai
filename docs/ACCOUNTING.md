@@ -119,7 +119,13 @@ Every entry must balance; the generator gets a unit test per row of this table.
   RevPAR = room revenue ÷ available room nights; room revenue = lines with room nights.
   Hotel ratios only for properties with Rooms set (blank = not a hotel, e.g. Serve Property); group ratios use hotels only. Charts seeded before E get the
   receivable account and the commission role added on first use.
-- **Phase E2 (next): budgets + source-specific importers.** Original plan: **Phase E: Revenue & budget inputs.** Revenue import (PMS/bank CSV) and a budget sheet, so the pack is a
+- ✅ **Phase E2: Budgets** (`backend/src/accounting/budget.ts`, `routes/budget.ts`). Amount per revenue/expense account per
+  month, positive for both; entered for a year as a grid or CSV (`account,jan..dec`; pasted accounts replace their year,
+  others kept). Not locked by month close (a plan, not the books); audit-logged. Applied to the pack after it is built
+  (and after consolidation, with property budgets summed by account code): Budget/Variance on revenue and cost rows,
+  budget-only accounts shown at 0 actual, `budget` summary with revenue/opex/GOP variance (actual − budget; for costs
+  positive = unfavourable). Month only; YTD vs budget later.
+- **Phase E3 (next): source-specific importers, YTD vs budget.** Original plan: **Phase E: Revenue & budget inputs.** Revenue import (PMS/bank CSV) and a budget sheet, so the pack is a
   full P&L with variance.
 
 ## Open decisions

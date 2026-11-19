@@ -5,6 +5,8 @@ import { all, now, one } from '../db.js';
 import { buildPack, consolidate, type AccountInfo, type Pack } from '../accounting/mma.js';
 import { commentaryEnabled, generateCommentary, packHash, type CommentaryResult } from '../accounting/commentary.js';
 import { mmaWorkbook } from '../accounting/mma-xlsx.js';
+import { applyBudget, sumBudgets } from '../accounting/budget.js';
+import { monthBudget } from './budget.js';
 import type { JournalEntry } from '../accounting/journal.js';
 import { audit } from '../accounting/periods.js';
 import { CAPEX, CLAIMABLE, FUEL, MONTH } from './reports.js';
@@ -55,7 +57,7 @@ export function mountMma(r: Router, db: Db, deps: {
          GROUP BY 1 ORDER BY 2 DESC`, [orgId, month, `${month.slice(0, 4)}-01`]),
     ]);
     const money = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
-    return buildPack({
+    return applyBudget(buildPack({
       organization: { id: orgId, name: org?.organization_name ?? 'Property' },
       month,
       period: current.period,
@@ -72,7 +74,7 @@ export function mountMma(r: Router, db: Db, deps: {
       // A closed month's channels/room nights come from its locked revenue lines, so they match the frozen journal
       revenueLines: revenueLines.map((x) => ({ channel: x.channel, net_amount: Number(x.net_amount), commission: Number(x.commission), room_nights: x.room_nights == null ? null : Number(x.room_nights) })),
       rooms: org?.rooms ?? null,
-    });
+    }), await monthBudget(db, orgId, month));
   }
 
   /** organization_id=<id> or "all" (every property the user belongs to). */
@@ -88,7 +90,9 @@ export function mountMma(r: Router, db: Db, deps: {
       for (const o of orgs) await deps.access(userId, o.organization_id);
       const packs = [];
       for (const o of orgs) packs.push(await propertyPack(o.organization_id, month));
-      return { pack: consolidate(packs, month), scopeKey: `all:${orgs.map((o) => o.organization_id).sort().join(',')}` };
+      const budgets = [];
+      for (const o of orgs) budgets.push(await monthBudget(db, o.organization_id, month));
+      return { pack: applyBudget(consolidate(packs, month), sumBudgets(budgets)), scopeKey: `all:${orgs.map((o) => o.organization_id).sort().join(',')}` };
     }
     const a = await deps.access(userId, orgParam, write);
     if ('error' in a) return a;

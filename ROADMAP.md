@@ -82,7 +82,8 @@ Design and posting rules: [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md).
 - [x] C: Month-end close: readiness checklist, close (owner/admin) freezes the journal and locks the month's receipts, owner-only reopen with a reason, audit log (`/accounting/periods*`, `/accounting/audit`)
 - [x] D: MMA pack per property + consolidated (costs vs last month / last year, top vendors, capex + YTD, advances at month end, VAT, cash by week, close checklist), Excel + print, Claude commentary (EN/TH) number-checked against the pack (`/accounting/mma*`, page *Management accounts*)
 - [x] E1: Revenue lines per month (manual or CSV paste; account, channel, net, VAT, OTA commission, room nights, bank/receivable), posted to the journal; pack shows revenue, GOP, occupancy, ADR, RevPAR; rooms per property
-- [ ] E2: Budgets per property × account × month, variance in the pack; PMS/OTA-specific importers once a sample file is available
+- [x] E2: Budgets per property × account × month (grid or CSV paste; owner/admin; audit-logged), actual vs budget in the pack (tiles, revenue/cost tables, GOP), Excel and commentary
+- [ ] E3: PMS/OTA-specific importers once a sample file is available; year-to-date vs budget
 
 ## Phase 4 — Hardening
 - Role permissions, audit log, accountant export, CI, backups and monitoring

@@ -37,6 +37,9 @@ window.AccountingApi = {
     addRevenue(orgId, line) { return this.request('POST', '/revenue', { organization_id: orgId, ...line }); },
     deleteRevenue(id) { return this.request('DELETE', `/revenue/${encodeURIComponent(id)}`); },
     importRevenue(orgId, csv) { return this.request('POST', '/revenue/import', { organization_id: orgId, csv }); },
+    budget(orgId, year) { return this.request('GET', `/budget?organization_id=${encodeURIComponent(orgId)}&year=${encodeURIComponent(year)}`); },
+    saveBudget(orgId, year, lines) { return this.request('PUT', '/budget', { organization_id: orgId, year, lines }); },
+    importBudget(orgId, year, csv) { return this.request('POST', '/budget/import', { organization_id: orgId, year, csv }); },
     readiness(orgId, month) {
         return this.request('GET', `/readiness?organization_id=${encodeURIComponent(orgId)}&month=${encodeURIComponent(month)}`);
     },
