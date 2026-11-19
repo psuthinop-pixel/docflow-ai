@@ -277,7 +277,7 @@ window.ReceiptsPage = {
         </select>
       </div>
       <div id="advanceSection" style="${r.payment_source === 'advance' ? '' : 'display:none'}">
-        ${field('paid_by', '🙋 Paid by (to reimburse)', r.paid_by || '', 'placeholder="Who paid out of pocket"')}
+        ${field('paid_by', '🙋 Paid by (to reimburse)', r.paid_by || (r.payment_source === 'advance' && !r.id ? App.currentUser?.name || '' : ''), 'placeholder="Who paid out of pocket"')}
         ${this.canApprove()
           ? `<div class="ocr-field"><div class="ocr-field-label">✅ Reimbursed on</div><input class="ocr-field-input" data-reimb="1" type="date" value="${esc(r.reimbursed_at || '')}" title="Leave blank until the advance is paid back"></div>`
           : `<div style="font-size:0.8rem;color:var(--amber);margin:4px 0 8px">${r.reimbursed_at ? `✅ Reimbursed on ${esc(r.reimbursed_at)}` : '⏳ Waiting for an owner/admin to reimburse'}</div>`}

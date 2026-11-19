@@ -5,6 +5,7 @@ import type { Db } from '../db.js';
 import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
 import { extractReceipt } from '../extract/index.js';
+import { applyMemory, vendorMemory } from '../extract/memory.js';
 
 export interface ReceiptOptions { maxUploadMb: number; ocrEngine: string }
 
@@ -63,19 +64,13 @@ export function receiptsRouter(db: Db, opts: ReceiptOptions): Router {
       );
 
       const f = extraction.fields;
-      // Known vendor: reuse the name/category/address a person already confirmed for this tax ID.
-      if (f.vendor_taxid) {
-        const known = await one<{ vendor_name: string; vendor_address: string; category: string }>(
-          db,
-          `SELECT vendor_name, vendor_address, category FROM expenses
-           WHERE organization_id = $1 AND vendor_taxid = $2 AND status != 'draft' AND vendor_name != ''
-           ORDER BY updated_at DESC LIMIT 1`,
-          [orgId, f.vendor_taxid],
-        );
-        if (known) {
-          f.vendor_name = known.vendor_name;
-          f.vendor_address ||= known.vendor_address;
-          f.category ||= known.category;
+      // Vendor memory: what a person confirmed on this seller's recent receipts pre-fills this one.
+      const warnings = [...extraction.warnings];
+      const memory = await vendorMemory(db, orgId, { taxid: f.vendor_taxid, name: f.vendor_name });
+      if (memory) {
+        const used = applyMemory(f as unknown as Record<string, unknown>, memory, JSON.parse(org.categories));
+        if (used.length) {
+          warnings.unshift(`Filled from ${memory.receipts} earlier receipt${memory.receipts === 1 ? '' : 's'} from this vendor: ${used.join(', ')}.`);
         }
       }
       const duplicates = await all(
@@ -92,7 +87,7 @@ export function receiptsRouter(db: Db, opts: ReceiptOptions): Router {
       res.status(201).json({
         receipt: toApi((await findOwned(id, req.user!.id))!),
         fields: f,
-        warnings: extraction.warnings,
+        warnings,
         duplicates,
       });
     } catch (err) {

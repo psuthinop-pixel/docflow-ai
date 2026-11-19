@@ -45,6 +45,7 @@ Goal: the features that already work end to end run against a real backend.
 - [x] OCR on the server, Thai + English (`tesseract.js`, `tha+eng`, language data bundled, works offline)
 - [x] Typhoon OCR engine (used in `auto` when there is no Claude key); Tesseract is the offline fallback
 - [x] Claude accuracy phase 1: Claude first in `auto`; Thai rules (seller vs buyer, BE dates, branch, VAT 7%, WHT); effort medium with one high-effort second look when the arithmetic/checksum/date/buyer checks fail; suggestions prefilled for review (abbreviated tax invoice → VAT not claimable, asset → capex, foreign service/goods, WHT and payment-method notes)
+- [x] Claude accuracy phase 2, vendor memory (`backend/src/extract/memory.ts`): the last 5 confirmed/approved receipts per seller (tax ID, or exact name when there's none) pre-fill name, address, branch, category, Paid from, VAT claim, capex, service/goods when ≥60% agree; printed branch, the abbreviated-tax-invoice rule and Claude's per-receipt asset call win over memory
 - [x] Optional Claude extractor (`OCR_ENGINE=claude`, or `auto` when `ANTHROPIC_API_KEY` is set) — not yet tested live
 - [x] Extract the 13-digit tax ID (checksum validated), VAT, invoice number, date (พ.ศ. → ค.ศ., Thai month names, Thai digits)
 - [x] PDFs: text layer first (e-Tax), scanned PDFs rasterised with `pdftoppm`
