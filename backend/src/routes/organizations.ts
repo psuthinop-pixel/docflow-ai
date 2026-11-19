@@ -89,6 +89,12 @@ export function organizationsRouter(db: Db): Router {
       if (typeof cats === 'string') return res.status(400).json({ detail: cats });
       set('categories', JSON.stringify(cats));
     }
+    if ('rooms' in body) {
+      // Sellable rooms, for occupancy / RevPAR in the management accounts
+      const rooms = body.rooms === null || body.rooms === '' ? null : Number(body.rooms);
+      if (rooms !== null && !(Number.isInteger(rooms) && rooms > 0 && rooms <= 10000)) return res.status(400).json({ detail: 'rooms must be a whole number of rooms' });
+      set('rooms', rooms);
+    }
     if (!sets.length) return res.status(400).json({ detail: 'Nothing to update' });
 
     params.push(req.params.id);

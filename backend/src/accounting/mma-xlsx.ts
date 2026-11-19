@@ -46,14 +46,22 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
   s.getCell('A1').font = { bold: true, size: 14 };
   s.getCell('A2').value = status;
   s.getCell('A2').font = { bold: p.status !== 'closed', color: { argb: p.status === 'closed' ? 'FF475569' : 'FFB45309' } };
-  s.getCell('A3').value = 'Revenue is not captured in DocFlow yet: this is a cost statement, not a full P&L.';
+  s.getCell('A3').value = p.revenue
+    ? 'Gross operating profit (GOP) = revenue − operating costs, before depreciation (not booked yet).'
+    : 'Revenue is not captured in DocFlow yet: this is a cost statement, not a full P&L.';
   s.getCell('A3').font = { size: 10, color: { argb: 'FF475569' } };
   const head = s.getRow(5);
   head.values = ['', 'This month', 'Previous month', 'Same month last year'];
   head.font = { bold: true };
   head.eachCell((c) => { c.fill = HEADER_FILL; });
   const sm = p.summary;
+  const rv = p.revenue;
   const lines: [string, number | null, number | null, number | null][] = [
+    ...(rv ? [
+      ['Revenue', rv.total, rv.prev, rv.ly],
+      ['Gross operating profit (GOP)', sm.gop, sm.gop_prev, null],
+      ['GOP margin (%)', sm.gop_margin_pct, null, null],
+    ] as [string, number | null, number | null, number | null][] : []),
     ['Operating costs', sm.opex, sm.opex_prev, sm.opex_ly],
     ['Change vs previous month (%)', sm.opex_change_pct, null, null],
     ['Change vs same month last year (%)', sm.opex_yoy_pct, null, null],
@@ -66,12 +74,19 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
     ['Advances repaid this month', sm.advances_repaid, null, null],
     ['Advances owed at month end', sm.advances_outstanding, null, null],
     ['Cash paid from company accounts', sm.cash_out, null, null],
+    ...(rv ? [
+      ['Room nights sold', rv.room_nights, null, null],
+      ['Occupancy (%)', rv.occupancy_pct, null, null],
+      ['ADR (average daily rate)', rv.adr, null, null],
+      ['RevPAR', rv.revpar, null, null],
+    ] as [string, number | null, number | null, number | null][] : []),
   ];
   lines.forEach((l, i) => {
     const row = s.getRow(6 + i);
     row.values = l;
     const isPct = l[0].includes('(%)');
-    [2, 3, 4].forEach((c) => { row.getCell(c).numFmt = isPct ? PCT : MONEY; });
+    const isCount = l[0].startsWith('Room nights');
+    [2, 3, 4].forEach((c) => { row.getCell(c).numFmt = isPct ? PCT : isCount ? '#,##0' : MONEY; });
   });
   let r = 6 + lines.length + 1;
   if (commentary) {
@@ -92,6 +107,20 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
     s.getCell(`A${r++}`).font = { bold: true, size: 12 };
     for (const b of p.checklist.blockers) s.getCell(`A${r++}`).value = `✗ ${b.message} (${b.count})`;
     for (const w of p.checklist.warnings) s.getCell(`A${r++}`).value = `! ${w.message} (${w.count})`;
+  }
+
+  if (rv) {
+    const rs = sheet(book, 'Revenue', 'Revenue', sub, ['Account', 'Name', 'This month', 'Previous month', 'Same month LY'], [12, 36, 16, 16, 16]);
+    rows(rs, rv.by_account.map((x) => [x.code, x.name, x.amount, x.prev, x.ly]), { 3: MONEY, 4: MONEY, 5: MONEY });
+    const ch = rs.getRow(rv.by_account.length + 7);
+    ch.values = ['By channel', '', 'Net revenue', 'Commission', 'Room nights'];
+    ch.font = { bold: true };
+    rv.by_channel.forEach((c, i) => {
+      const row = rs.getRow(rv.by_account.length + 8 + i);
+      row.values = ['', c.channel, c.net, c.commission, c.room_nights];
+      row.getCell(3).numFmt = MONEY;
+      row.getCell(4).numFmt = MONEY;
+    });
   }
 
   const opex = sheet(book, 'Operating costs', 'Operating costs by account', sub,
@@ -131,8 +160,9 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
   rows(cash, p.cash.weeks.map((w) => [w.week, w.opex, w.capex, w.reimbursements, w.total]), { 2: MONEY, 3: MONEY, 4: MONEY, 5: MONEY });
 
   if (p.by_property) {
-    const bp = sheet(book, 'By property', 'By property', sub, ['Property', 'Status', 'Operating costs', 'Capex', 'Input VAT', 'Advances owed', 'Cash out'], [28, 12, 16, 16, 16, 16, 16]);
-    rows(bp, p.by_property.map((x) => [x.name, x.status, x.opex, x.capex, x.input_vat, x.advances_outstanding, x.cash_out]), { 3: MONEY, 4: MONEY, 5: MONEY, 6: MONEY, 7: MONEY });
+    const bp = sheet(book, 'By property', 'By property', sub, ['Property', 'Status', 'Revenue', 'GOP', 'Occupancy %', 'Operating costs', 'Capex', 'Input VAT', 'Advances owed', 'Cash out'], [28, 12, 16, 16, 12, 16, 16, 16, 16, 16]);
+    rows(bp, p.by_property.map((x) => [x.name, x.status, x.revenue, x.gop, x.occupancy_pct, x.opex, x.capex, x.input_vat, x.advances_outstanding, x.cash_out]),
+      { 3: MONEY, 4: MONEY, 5: PCT, 6: MONEY, 7: MONEY, 8: MONEY, 9: MONEY, 10: MONEY });
   }
   return book;
 }

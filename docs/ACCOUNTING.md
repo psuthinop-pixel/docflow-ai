@@ -111,7 +111,14 @@ Every entry must balance; the generator gets a unit test per row of this table.
   Original plan: **Phase D: MMA pack.** `GET /reports/mma?organization_id=<id|all>&month` + Excel/PDF with the 7 sections
   above. Claude writes a short owner commentary (variances, risks, cash timing) from the numbers. It
   never invents figures; every number in the text must come from the pack data.
-- **Phase E: Revenue & budget inputs.** Revenue import (PMS/bank CSV) and a budget sheet, so the pack is a
+- ✅ **Phase E1: Revenue** (`backend/src/routes/revenue.ts`, `revenueEntry` in `journal.ts`, `revenueSection` in `mma.ts`).
+  Revenue lines per month, typed from the PMS night audit / OTA statements or pasted as CSV (all-or-nothing import).
+  Posting: Dr bank (or 1130 receivable) for what's collected + Dr 5130 commission for what the OTA kept; Cr revenue (net) +
+  Cr 2150 output VAT. Closed months lock revenue too. Pack: revenue vs last month/year, GOP = revenue − operating costs
+  (commission included, before depreciation), occupancy = room nights ÷ (rooms × days), ADR = room revenue ÷ room nights,
+  RevPAR = room revenue ÷ available room nights; room revenue = lines with room nights. Charts seeded before E get the
+  receivable account and the commission role added on first use.
+- **Phase E2 (next): budgets + source-specific importers.** Original plan: **Phase E: Revenue & budget inputs.** Revenue import (PMS/bank CSV) and a budget sheet, so the pack is a
   full P&L with variance.
 
 ## Open decisions

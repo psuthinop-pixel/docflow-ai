@@ -23,7 +23,8 @@ properties. Owner/operator is the user; the accountant consumes the exports.
 - `payment_source`: 'company' (direct transfer) or 'advance' (สำรองจ่าย). `reimbursed_at` is owner/admin only.
 - Dates are Western year (dd/mm/yyyy) in exports; seller branch stored as the 5-digit RD code.
 - Approval and FX rates are owner/admin only. Closing a month: owner/admin; reopening: owner only, with a reason.
-- A closed month is locked (HTTP 423) and its journal is a frozen snapshot; never post into or edit a closed month.
+- A closed month is locked (HTTP 423) and its journal is a frozen snapshot; never post into or edit a closed month (receipts and revenue).
+- Revenue lines are entered net of VAT, with OTA commission separate (it is an operating cost); GOP is before depreciation.
 - No accounting software yet: DocFlow keeps its own management journal on a seeded Thai SME chart of
   accounts and exports a neutral journal format (see `docs/ACCOUNTING.md` → Goal).
 

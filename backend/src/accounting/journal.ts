@@ -36,7 +36,7 @@ export interface PostingContext {
 
 export interface JournalLine { account_code: string; account_name: string; debit: number; credit: number; memo: string }
 export interface JournalEntry {
-  kind: 'expense' | 'reimbursement';
+  kind: 'expense' | 'reimbursement' | 'revenue';
   date: string;
   expense_id: string;
   document_no: string;
@@ -115,6 +115,43 @@ export function reimbursementEntry(e: PostingExpense, ctx: PostingContext): Jour
       line(ctx, ctx.roleCode('advances_payable'), 'advances payable', gross, 0, `Advance: ${who}`),
       line(ctx, ctx.bankCode, 'the bank account', 0, gross, `Reimburse ${who}`),
     ]),
+  };
+}
+
+/** One revenue line as entered (from the PMS night audit / OTA statement). */
+export interface PostingRevenue {
+  id: string;
+  date: string;
+  account_code: string;
+  channel: string;
+  description: string;
+  net_amount: number;
+  vat_amount: number;
+  commission: number;
+  received_to: 'bank' | 'receivable';
+}
+
+/**
+ * Revenue: Cr revenue (net) + Cr output VAT; Dr bank or receivable for what is collected, Dr commission for what
+ * the OTA keeps. Gross = net + VAT = cash/receivable + commission.
+ */
+export function revenueEntry(r: PostingRevenue, ctx: PostingContext): JournalEntry {
+  const acc = ctx.accounts.get(r.account_code);
+  if (!acc || !acc.active || acc.type !== 'revenue') throw new PostingError(`Account ${r.account_code} is not an active revenue account`);
+  const net = round2(r.net_amount);
+  const vat = round2(r.vat_amount);
+  const commission = round2(r.commission);
+  const gross = round2(net + vat);
+  const memo = [r.channel, r.description].filter(Boolean).join(' · ');
+  const lines: JournalLine[] = [];
+  const debit = r.received_to === 'receivable' ? ctx.roleCode('receivable') : ctx.bankCode;
+  lines.push(line(ctx, debit, r.received_to === 'receivable' ? 'accounts receivable' : 'the bank account', gross - commission, 0, memo));
+  if (commission) lines.push(line(ctx, ctx.roleCode('commission'), 'OTA commission', commission, 0, memo));
+  lines.push(line(ctx, acc.code, 'revenue', 0, net, memo));
+  if (vat) lines.push(line(ctx, ctx.roleCode('output_vat'), 'output VAT', 0, vat, memo));
+  return {
+    kind: 'revenue', date: r.date, expense_id: r.id, document_no: '', vendor_name: r.channel, vendor_taxid: '',
+    description: memo || acc.name, lines: assertBalanced(lines),
   };
 }
 

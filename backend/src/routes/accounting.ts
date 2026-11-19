@@ -6,10 +6,11 @@ import { all, newId, now, one } from '../db.js';
 import { membershipRole, requireAuth } from '../auth.js';
 import { ACCOUNT_TYPES, DEFAULT_BANK_CODE, DEFAULT_CAPEX_CODE, SEED_ACCOUNTS, suggestAccount, type AccountType } from '../accounting/coa.js';
 import { CAPEX, CLAIMABLE, MONTH } from './reports.js';
-import { expenseEntry, PostingError, reimbursementEntry, round2, trialBalance, type AccountRef, type JournalEntry, type PostingContext, type PostingExpense } from '../accounting/journal.js';
+import { expenseEntry, PostingError, reimbursementEntry, revenueEntry, type PostingRevenue, round2, trialBalance, type AccountRef, type JournalEntry, type PostingContext, type PostingExpense } from '../accounting/journal.js';
 import { journalWorkbook } from '../accounting/journal-xlsx.js';
 import { audit } from '../accounting/periods.js';
 import { mountMma } from './mma.js';
+import { mountRevenue } from './revenue.js';
 
 const EDITORS = ['owner', 'admin'];
 
@@ -38,6 +39,19 @@ export async function ensureChart(db: Db, orgId: string): Promise<void> {
        VALUES ${rows.join(', ')} ON CONFLICT (organization_id, code) DO NOTHING`,
       values,
     );
+  }
+  // Charts seeded before a role existed get that role's account added (or tagged on the seed code, if unused)
+  const roles = await all<{ role: string }>(db, `SELECT DISTINCT role FROM accounts WHERE organization_id = $1 AND role <> ''`, [orgId]);
+  for (const a of SEED_ACCOUNTS.filter((x) => x.role && !roles.some((r) => r.role === x.role))) {
+    const taken = await one<{ id: string; role: string; type: string }>(db, 'SELECT id, role, type FROM accounts WHERE organization_id = $1 AND code = $2', [orgId, a.code]);
+    if (!taken) {
+      await db.query(
+        `INSERT INTO accounts (id, organization_id, code, name, name_th, type, role, life_years, contra_code, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [newId(), orgId, a.code, a.name, a.name_th, a.type, a.role, a.life_years ?? null, a.contra_code ?? null, now()],
+      );
+    } else if (!taken.role && taken.type === a.type) {
+      await db.query('UPDATE accounts SET role = $2 WHERE id = $1', [taken.id, a.role]);
+    }
   }
   await db.query(
     `INSERT INTO accounting_settings (organization_id, bank_code, capex_code, updated_at) VALUES ($1, $2, $3, $4)
@@ -270,6 +284,8 @@ export function accountingRouter(db: Db): Router {
     if (counts.payment_unset) warnings.push({ code: 'payment_unset', message: '"Paid from" not set: will post as company bank payments', count: counts.payment_unset });
     if (counts.advance_no_person) warnings.push({ code: 'advance_no_person', message: 'Advances without "Paid by": owed to an unknown person', count: counts.advance_no_person });
     if (counts.foreign_type_unset) warnings.push({ code: 'foreign_type_unset', message: 'Foreign receipts without "Service or goods": posted with no ภ.พ.36', count: counts.foreign_type_unset });
+    const rev = await one<{ n: number }>(db, `SELECT COUNT(*)::int AS n FROM revenue_entries WHERE organization_id = $1 AND substr(date, 1, 7) = $2`, args);
+    if (!rev?.n && counts.posted) warnings.push({ code: 'no_revenue', message: 'No revenue entered for this month (Management accounts → Revenue)', count: 0 });
     if (counts.not_approved) warnings.push({ code: 'not_approved', message: 'Confirmed but not yet approved by an owner/admin', count: counts.not_approved });
     if (capexToDefault?.n) warnings.push({ code: 'capex_default_account', message: 'Capex in a non-asset category: will post to the default capex account', count: capexToDefault.n });
 
@@ -304,7 +320,7 @@ export function accountingRouter(db: Db): Router {
     const toPosting = (x: Record<string, any>): PostingExpense => ({
       ...x, total_thb: Number(x.total_thb), tax_amount: Number(x.tax_amount), claimable: Boolean(x.claimable), capex: Boolean(x.capex),
     } as PostingExpense);
-    const [expenses, reimbursed] = await Promise.all([
+    const [expenses, reimbursed, revenue] = await Promise.all([
       all<Record<string, any>>(db, `SELECT ${cols} FROM expenses e
         WHERE e.organization_id = $1 AND ${POSTED} AND ${MONTH} = $2 AND e.total_thb IS NOT NULL
         ORDER BY 2, e.created_at`, [orgId, month]),
@@ -312,6 +328,8 @@ export function accountingRouter(db: Db): Router {
         WHERE e.organization_id = $1 AND ${POSTED} AND e.payment_source = 'advance' AND e.total_thb IS NOT NULL
           AND substr(e.reimbursed_at, 1, 7) = $2
         ORDER BY e.reimbursed_at, e.created_at`, [orgId, month]),
+      all<Record<string, any>>(db, `SELECT * FROM revenue_entries WHERE organization_id = $1 AND substr(date, 1, 7) = $2
+        ORDER BY date, created_at`, [orgId, month]),
     ]);
 
     const entries: JournalEntry[] = [];
@@ -326,7 +344,17 @@ export function accountingRouter(db: Db): Router {
     };
     expenses.forEach((x) => tryPost(x, expenseEntry));
     reimbursed.forEach((x) => tryPost(x, reimbursementEntry));
-    entries.sort((p, q) => p.date.localeCompare(q.date) || (p.kind === q.kind ? 0 : p.kind === 'expense' ? -1 : 1));
+    for (const x of revenue) {
+      const line: PostingRevenue = { ...x, net_amount: Number(x.net_amount), vat_amount: Number(x.vat_amount), commission: Number(x.commission) } as PostingRevenue;
+      try {
+        entries.push(revenueEntry(line, ctx));
+      } catch (err) {
+        if (!(err instanceof PostingError)) throw err;
+        errors.push({ expense_id: x.id, vendor_name: `Revenue ${x.channel || x.account_code}`, message: err.message });
+      }
+    }
+    const order = { revenue: 0, expense: 1, reimbursement: 2 };
+    entries.sort((p, q) => p.date.localeCompare(q.date) || order[p.kind] - order[q.kind]);
     const numbered = entries.map((x, i) => ({ entry_no: `JV-${month.replace('-', '')}-${String(i + 1).padStart(4, '0')}`, ...x }));
 
     const ready = await readiness(orgId, month);
@@ -451,6 +479,7 @@ export function accountingRouter(db: Db): Router {
   });
 
   mountMma(r, db, { access, journal });
+  mountRevenue(r, db, { access });
 
   return r;
 }

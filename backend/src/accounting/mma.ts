@@ -20,6 +20,17 @@ export interface PackInput {
   advancesOutstanding: { paid_by: string; count: number; total: number; oldest_month: string }[];
   vatNotClaimable: { reason: string; count: number; vat: number }[];
   capexYtd: { category: string; amount: number }[];
+  /** Revenue lines entered for the month (for channels and room nights); amounts in the pack come from the journal. */
+  revenueLines: { channel: string; net_amount: number; commission: number; room_nights: number | null }[];
+  rooms: number | null;
+}
+
+export interface RevenueSection {
+  total: number; prev: number; ly: number; change_pct: number | null; yoy_pct: number | null;
+  by_account: { code: string; name: string; amount: number; prev: number; ly: number }[];
+  by_channel: { channel: string; net: number; commission: number; room_nights: number }[];
+  commission: number; room_nights: number; room_revenue: number;
+  rooms: number | null; days: number; occupancy_pct: number | null; adr: number | null; revpar: number | null;
 }
 
 export interface Pack {
@@ -29,11 +40,12 @@ export interface Pack {
   closed_at: string | null;
   closed_by: string | null;
   checklist: { ready: boolean; blockers: PackInput['blockers']; warnings: PackInput['warnings'] };
-  revenue: null;
+  revenue: RevenueSection | null;
   summary: {
     opex: number; opex_prev: number; opex_ly: number; opex_change_pct: number | null; opex_yoy_pct: number | null;
     capex: number; capex_ytd: number; input_vat: number; pp36_vat: number; vat_not_claimable: number;
     advances_opened: number; advances_repaid: number; advances_outstanding: number; cash_out: number; entries: number;
+    revenue: number | null; gop: number | null; gop_margin_pct: number | null; gop_prev: number | null;
   };
   opex: { code: string; name: string; amount: number; prev: number; ly: number; change_pct: number | null; share_pct: number }[];
   top_vendors: { vendor: string; amount: number; count: number }[];
@@ -41,7 +53,7 @@ export interface Pack {
   advances: { outstanding: { paid_by: string; count: number; total: number; oldest_month: string; property?: string }[] };
   vat: { not_claimable: { reason: string; count: number; vat: number }[] };
   cash: { weeks: { week: string; opex: number; capex: number; reimbursements: number; total: number }[] };
-  by_property?: { id: string; name: string; status: string; opex: number; capex: number; input_vat: number; advances_outstanding: number; cash_out: number }[];
+  by_property?: { id: string; name: string; status: string; revenue: number | null; gop: number | null; occupancy_pct: number | null; opex: number; capex: number; input_vat: number; advances_outstanding: number; cash_out: number }[];
 }
 
 /** One decimal, halves rounded away from zero (−23.25% → −23.3%). */
@@ -70,8 +82,69 @@ function opexByAccount(entries: JournalEntry[], accounts: Map<string, AccountInf
   return out;
 }
 
+/** Net credit per revenue account. */
+function revenueByAccount(entries: JournalEntry[], accounts: Map<string, AccountInfo>) {
+  const out = new Map<string, { code: string; name: string; amount: number }>();
+  for (const l of entries.flatMap((e) => e.lines)) {
+    const a = info(accounts, l.account_code, l.account_name);
+    if (a.type !== 'revenue' && !/^4/.test(l.account_code)) continue;
+    const row = out.get(l.account_code) ?? { code: l.account_code, name: l.account_name, amount: 0 };
+    row.amount = round2(row.amount + l.credit - l.debit);
+    out.set(l.account_code, row);
+  }
+  return out;
+}
+
+const daysIn = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate();
+
+/** Revenue section and hotel KPIs; null when there is no revenue this month, last month or last year. */
+export function revenueSection(
+  month: string, now: Map<string, { code: string; name: string; amount: number }>, prev: Map<string, { amount: number }>,
+  ly: Map<string, { amount: number }>, lines: PackInput['revenueLines'], rooms: number | null,
+): RevenueSection | null {
+  const tot = (m: Map<string, { amount: number }>) => round2([...m.values()].reduce((t, x) => t + x.amount, 0));
+  const total = tot(now), p = tot(prev), y = tot(ly);
+  if (!total && !p && !y && !lines.length) return null;
+  const channels = new Map<string, RevenueSection['by_channel'][number]>();
+  for (const l of lines) {
+    const key = l.channel || 'Unspecified';
+    const c = channels.get(key) ?? { channel: key, net: 0, commission: 0, room_nights: 0 };
+    c.net = round2(c.net + l.net_amount);
+    c.commission = round2(c.commission + l.commission);
+    c.room_nights += l.room_nights ?? 0;
+    channels.set(key, c);
+  }
+  const roomNights = lines.reduce((t, l) => t + (l.room_nights ?? 0), 0);
+  const roomRevenue = round2(lines.filter((l) => (l.room_nights ?? 0) > 0).reduce((t, l) => t + l.net_amount, 0));
+  const days = daysIn(month);
+  const available = rooms ? rooms * days : 0;
+  return {
+    total, prev: p, ly: y, change_pct: pct(total, p), yoy_pct: pct(total, y),
+    by_account: [...new Set([...now.keys(), ...prev.keys()])].map((code) => ({
+      code, name: (now.get(code) ?? (prev.get(code) as { name?: string }))?.name ?? code,
+      amount: now.get(code)?.amount ?? 0, prev: prev.get(code)?.amount ?? 0, ly: ly.get(code)?.amount ?? 0,
+    })).sort((a, b) => b.amount - a.amount || a.code.localeCompare(b.code)),
+    by_channel: [...channels.values()].sort((a, b) => b.net - a.net),
+    commission: round2(lines.reduce((t, l) => t + l.commission, 0)),
+    room_nights: roomNights, room_revenue: roomRevenue, rooms, days,
+    occupancy_pct: available ? round1((roomNights / available) * 100) : null,
+    adr: roomNights ? round2(roomRevenue / roomNights) : null,
+    revpar: available ? round2(roomRevenue / available) : null,
+  };
+}
+
 const WEEKS = ['1-7', '8-14', '15-21', '22-end'];
 const weekOf = (date: string) => WEEKS[Math.min(3, Math.floor((Number(date.slice(8, 10)) - 1) / 7))];
+
+/** Gross operating profit = revenue − operating costs (OTA commission is an operating cost). */
+function gopOf(revenue: RevenueSection | null, opex: number, opexPrev: number) {
+  if (!revenue) return { revenue: null, gop: null, gop_margin_pct: null, gop_prev: null };
+  const gop = round2(revenue.total - opex);
+  return {
+    revenue: revenue.total, gop, gop_margin_pct: revenue.total ? round1((gop / revenue.total) * 100) : null,
+    gop_prev: round2(revenue.prev - opexPrev),
+  };
+}
 
 export function buildPack(i: PackInput): Pack {
   const opex = opexByAccount(i.entries, i.accounts);
@@ -118,6 +191,8 @@ export function buildPack(i: PackInput): Pack {
     }
   }
 
+  const revenue = revenueSection(i.month, revenueByAccount(i.entries, i.accounts), revenueByAccount(i.prevEntries, i.accounts),
+    revenueByAccount(i.lyEntries, i.accounts), i.revenueLines, i.rooms);
   const outstanding = round2(i.advancesOutstanding.reduce((t, x) => t + x.total, 0));
   const cashOut = round2([...weeks.values()].reduce((t, w) => t + w.total, 0));
   return {
@@ -127,13 +202,14 @@ export function buildPack(i: PackInput): Pack {
     closed_at: i.period.closed_at,
     closed_by: i.period.closed_by,
     checklist: { ready: i.ready, blockers: i.blockers, warnings: i.warnings },
-    revenue: null,
+    revenue,
     summary: {
       opex: opexTotal, opex_prev: sum(prev), opex_ly: sum(ly),
       opex_change_pct: pct(opexTotal, sum(prev)), opex_yoy_pct: pct(opexTotal, sum(ly)),
       capex, capex_ytd: round2(i.capexYtd.reduce((t, x) => t + x.amount, 0)),
       input_vat: inputVat, pp36_vat: pp36, vat_not_claimable: round2(i.vatNotClaimable.reduce((t, x) => t + x.vat, 0)),
       advances_opened: opened, advances_repaid: repaid, advances_outstanding: outstanding, cash_out: cashOut, entries: i.entries.length,
+      ...gopOf(revenue, opexTotal, sum(prev)),
     },
     opex: [...new Set([...opex.keys(), ...prev.keys()])].map((code) => {
       const now = opex.get(code)?.amount ?? 0;
@@ -184,6 +260,30 @@ export function consolidate(packs: Pack[], month: string): Pack {
   const ytd = new Map<string, number>();
   for (const y of packs.flatMap((p) => p.capex.ytd)) ytd.set(y.category, round2((ytd.get(y.category) ?? 0) + y.amount));
   const allClosed = packs.length > 0 && packs.every((p) => p.status === 'closed');
+  const withRev = packs.filter((p) => p.revenue);
+  let revenue: RevenueSection | null = null;
+  if (withRev.length) {
+    const acc = (k: 'amount' | 'prev' | 'ly') => {
+      const m = new Map<string, { code: string; name: string; amount: number }>();
+      for (const a of withRev.flatMap((p) => p.revenue!.by_account)) {
+        const row = m.get(a.code) ?? { code: a.code, name: a.name, amount: 0 };
+        row.amount = round2(row.amount + a[k]);
+        m.set(a.code, row);
+      }
+      return m;
+    };
+    const lines = withRev.flatMap((p) => p.revenue!.by_channel.map((c) => ({ channel: c.channel, net_amount: c.net, commission: c.commission, room_nights: c.room_nights })));
+    // Room revenue isn't per channel, so group KPIs are rebuilt from each property's own figures
+    const allRooms = withRev.every((p) => p.revenue!.rooms);
+    revenue = revenueSection(month, acc('amount'), acc('prev'), acc('ly'), lines, allRooms ? withRev.reduce((t, p) => t + p.revenue!.rooms!, 0) : null);
+    const roomRevenue = round2(withRev.reduce((t, p) => t + p.revenue!.room_revenue, 0));
+    const available = revenue?.rooms ? revenue.rooms * revenue.days : 0;
+    if (revenue) Object.assign(revenue, {
+      room_revenue: roomRevenue,
+      adr: revenue.room_nights ? round2(roomRevenue / revenue.room_nights) : null,
+      revpar: available ? round2(roomRevenue / available) : null,
+    });
+  }
   return {
     organizations: packs.flatMap((p) => p.organizations),
     month,
@@ -195,13 +295,14 @@ export function consolidate(packs: Pack[], month: string): Pack {
       blockers: packs.flatMap((p) => p.checklist.blockers.map((b) => ({ ...b, message: `${p.organizations[0].name}: ${b.message}` }))),
       warnings: packs.flatMap((p) => p.checklist.warnings.map((b) => ({ ...b, message: `${p.organizations[0].name}: ${b.message}` }))),
     },
-    revenue: null,
+    revenue,
     summary: {
       opex: opexTotal, opex_prev: prevTotal, opex_ly: lyTotal, opex_change_pct: pct(opexTotal, prevTotal), opex_yoy_pct: pct(opexTotal, lyTotal),
       capex: s((p) => p.summary.capex), capex_ytd: s((p) => p.summary.capex_ytd), input_vat: s((p) => p.summary.input_vat),
       pp36_vat: s((p) => p.summary.pp36_vat), vat_not_claimable: s((p) => p.summary.vat_not_claimable),
       advances_opened: s((p) => p.summary.advances_opened), advances_repaid: s((p) => p.summary.advances_repaid),
       advances_outstanding: s((p) => p.summary.advances_outstanding), cash_out: s((p) => p.summary.cash_out), entries: s((p) => p.summary.entries),
+      ...gopOf(revenue, opexTotal, prevTotal),
     },
     opex: [...opex.values()].map((o) => ({ ...o, change_pct: pct(o.amount, o.prev), share_pct: opexTotal ? round1((o.amount / opexTotal) * 100) : 0 }))
       .sort((a, b) => b.amount - a.amount || a.code.localeCompare(b.code)),
@@ -220,7 +321,8 @@ export function consolidate(packs: Pack[], month: string): Pack {
       }),
     },
     by_property: packs.map((p) => ({
-      id: p.organizations[0].id, name: p.organizations[0].name, status: p.status, opex: p.summary.opex, capex: p.summary.capex,
+      id: p.organizations[0].id, name: p.organizations[0].name, status: p.status,
+      revenue: p.summary.revenue, gop: p.summary.gop, occupancy_pct: p.revenue?.occupancy_pct ?? null, opex: p.summary.opex, capex: p.summary.capex,
       input_vat: p.summary.input_vat, advances_outstanding: p.summary.advances_outstanding, cash_out: p.summary.cash_out,
     })),
   };

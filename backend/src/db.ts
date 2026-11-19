@@ -170,6 +170,25 @@ const SCHEMA = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (scope_key, month, language)
   )`,
+  // Revenue (Phase E): rooms for occupancy KPIs, and revenue lines entered per month from the PMS / OTA statements
+  `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS rooms INTEGER`,
+  `CREATE TABLE IF NOT EXISTS revenue_entries (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    account_code TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    net_amount DOUBLE PRECISION NOT NULL,
+    vat_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+    commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+    received_to TEXT NOT NULL DEFAULT 'bank',
+    room_nights INTEGER,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_revenue_org ON revenue_entries(organization_id, date)`,
   `CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at BIGINT NOT NULL

@@ -25,12 +25,14 @@ export function mountMma(r: Router, db: Db, deps: {
   journal: (orgId: string, month: string) => Promise<JournalLike>;
 }) {
   async function propertyPack(orgId: string, month: string): Promise<Pack> {
-    const [org, accts, current, prev, ly] = await Promise.all([
-      one<{ organization_name: string }>(db, 'SELECT organization_name FROM organizations WHERE id = $1', [orgId]),
+    const [org, accts, current, prev, ly, revenueLines] = await Promise.all([
+      one<{ organization_name: string; rooms: number | null }>(db, 'SELECT organization_name, rooms FROM organizations WHERE id = $1', [orgId]),
       all<AccountInfo>(db, 'SELECT code, name, role, type FROM accounts WHERE organization_id = $1', [orgId]),
       deps.journal(orgId, month),
       deps.journal(orgId, shift(month, -1)),
       deps.journal(orgId, shift(month, -12)),
+      all<Record<string, any>>(db, `SELECT channel, net_amount, commission, room_nights FROM revenue_entries
+        WHERE organization_id = $1 AND substr(date, 1, 7) = $2`, [orgId, month]),
     ]);
     const args = [orgId, month];
     const [advances, vatGaps, capexYtd] = await Promise.all([
@@ -67,6 +69,9 @@ export function mountMma(r: Router, db: Db, deps: {
       advancesOutstanding: advances.map((x) => ({ paid_by: x.paid_by, count: x.count, total: money(x.total), oldest_month: x.oldest_month })),
       vatNotClaimable: vatGaps.map((x) => ({ reason: x.reason, count: x.count, vat: money(x.vat) })),
       capexYtd: capexYtd.map((x) => ({ category: x.category, amount: money(x.amount) })),
+      // A closed month's channels/room nights come from its locked revenue lines, so they match the frozen journal
+      revenueLines: revenueLines.map((x) => ({ channel: x.channel, net_amount: Number(x.net_amount), commission: Number(x.commission), room_nights: x.room_nights == null ? null : Number(x.room_nights) })),
+      rooms: org?.rooms ?? null,
     });
   }
 
