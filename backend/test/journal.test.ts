@@ -48,6 +48,11 @@ test('foreign service (ภ.พ.36): THB cost, 7% input VAT not yet due against P
     lines({ category: 'Software', currency: 'USD', total_thb: 3625, tax_amount: 0, supply_type: 'service', claimable: false }),
     [['6160', 3625, 0], ['1112', 0, 3625], ['1151', 253.75, 0], ['2160', 0, 253.75]],
   );
+  // Foreign seller billing in THB (e.g. GoDaddy): marked service, so the reverse charge still applies
+  assert.deepEqual(
+    lines({ category: 'Software', currency: 'THB', total_thb: 599, tax_amount: 0, supply_type: 'service', claimable: false }),
+    [['6160', 599, 0], ['1112', 0, 599], ['1151', 41.93, 0], ['2160', 0, 41.93]],
+  );
   // Foreign goods: no reverse charge
   assert.deepEqual(lines({ category: 'Software', currency: 'USD', total_thb: 3625, supply_type: 'goods', claimable: false }), [['6160', 3625, 0], ['1112', 0, 3625]]);
 });

@@ -55,7 +55,7 @@ Account names are placeholders until the accountant's chart of accounts is loade
 | Reimbursement of an advance (`reimbursed_at` set) | Advances payable: <paid_by> | Bank |
 | Capex | Fixed asset (by class) = net; Input VAT | Bank or Advances payable |
 | Monthly depreciation (generated) | Depreciation expense | Accumulated depreciation |
-| Foreign service (`supply_type = 'service'`, ภ.พ.36) | Expense = THB amount; Input VAT (claimable the following month) | Bank; VAT payable ภ.พ.36 = 7% |
+| Foreign service (`supply_type = 'service'`, ภ.พ.36; any currency, incl. a foreign seller billing in THB) | Expense = THB amount; Input VAT (claimable the following month) | Bank; VAT payable ภ.พ.36 = 7% |
 | Withholding tax deducted (not captured yet) | (as above) | Bank = net paid; WHT payable ภ.ง.ด.3/53 |
 | Unpaid supplier invoice (credit terms; needs a payment date) | (as above) | Accounts payable: supplier |
 

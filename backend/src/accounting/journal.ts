@@ -15,7 +15,7 @@ export interface PostingExpense {
   currency: string;
   total_thb: number;
   tax_amount: number;         // in the receipt currency
-  supply_type: string;        // '', 'service', 'goods' (foreign receipts)
+  supply_type: string;        // '', 'service', 'goods' (foreign sellers; 'service' = ภ.พ.36 applies)
   payment_source: string;     // '', 'company', 'advance'
   paid_by: string;
   reimbursed_at: string | null;
@@ -90,8 +90,8 @@ export function expenseEntry(e: PostingExpense, ctx: PostingContext): JournalEnt
     : line(ctx, ctx.bankCode, 'the bank account', 0, gross, memo);
   lines.push(credit);
 
-  if (e.currency !== 'THB' && e.supply_type === 'service') {
-    // ภ.พ.36 reverse charge: VAT payable on the THB amount, claimable as input VAT from the following month.
+  if (e.supply_type === 'service') {
+    // ภ.พ.36 reverse charge (any currency: a foreign seller may bill in THB): VAT payable on the THB amount, claimable as input VAT from the following month.
     const pp36 = round2(gross * PP36_RATE);
     lines.push(line(ctx, ctx.roleCode('input_vat_pending'), 'input VAT not yet due', pp36, 0, `ภ.พ.36 ${memo}`));
     lines.push(line(ctx, ctx.roleCode('pp36_payable'), 'ภ.พ.36 VAT payable', 0, pp36, `ภ.พ.36 ${memo}`));

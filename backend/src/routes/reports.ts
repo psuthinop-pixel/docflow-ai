@@ -151,8 +151,9 @@ export function reportsRouter(db: Db): Router {
     })) as VatRow[];
   }
 
-  // ภ.พ.36 (reverse-charge VAT): foreign-currency payments for services. Goods are left out (VAT paid at customs);
-  // receipts not yet marked service or goods are listed as not ready.
+  // ภ.พ.36 (reverse-charge VAT): payments to foreign sellers for services. Foreign-currency receipts are listed
+  // unless marked goods (VAT paid at customs); unmarked ones are listed as not ready. A THB receipt is listed only
+  // when marked service (a foreign seller billing in baht, e.g. GoDaddy), since most THB receipts are Thai sellers.
   // VAT base is the THB amount actually paid; VAT = 7% of it. Ready = reviewed and converted to THB.
   async function pp36Rows(orgId: string, month: string): Promise<Pp36Row[]> {
     const rows = await all<Row>(
@@ -160,7 +161,7 @@ export function reportsRouter(db: Db): Router {
       `SELECT e.date, e.invoice_number, e.vendor_name, e.vendor_address, e.category, e.notes, e.currency, e.total, e.tax_amount,
               e.fx_rate, e.total_thb, e.status, e.supply_type
        FROM expenses e
-       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND e.currency <> 'THB' AND e.supply_type <> 'goods' AND ${MONTH} = $2
+       WHERE e.organization_id = $1 AND e.status <> 'disabled' AND ((e.currency <> 'THB' AND e.supply_type <> 'goods') OR e.supply_type = 'service') AND ${MONTH} = $2
        ORDER BY e.date NULLS LAST, e.vendor_name`,
       [orgId, month],
     );
