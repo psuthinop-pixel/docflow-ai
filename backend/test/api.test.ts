@@ -785,3 +785,61 @@ test('phase E: revenue lines, CSV import, posting, lock, P&L pack with KPIs, cha
   const log = (await call('GET', `/accounting/audit?organization_id=${org._id}&month=2026-11`, a)).body as { action: string; entity: string }[];
   assert.ok(log.some((x) => x.entity === 'revenue' && x.action === 'import'));
 });
+
+test('phase E2: budget by year, CSV import, actual vs budget in the pack and Excel', async () => {
+  const a = await login('a@test.com');
+  const c = await login('c@test.com');
+  const org = (await call('POST', '/organizations', a, { organization_name: 'Budget Hotel', categories: ['Office Supplies'] })).body;
+  const cId = (await db.query('SELECT id FROM users WHERE email = $1', ['c@test.com'])).rows[0].id as string;
+  await db.query('INSERT INTO memberships (user_id, organization_id, role) VALUES ($1, $2, $3)', [cId, org._id, 'member']);
+  await call('GET', `/accounting/accounts?organization_id=${org._id}`, a);
+  await call('PUT', '/accounting/mapping', a, { organization_id: org._id, mappings: [{ category: 'Office Supplies', account_code: '6140' }] });
+
+  // Validation and permissions
+  const put = (t: string, lines: unknown) => call('PUT', '/accounting/budget', t, { organization_id: org._id, year: '2026', lines });
+  assert.equal((await put(c, [])).status, 403);
+  assert.equal((await put(a, [{ account: '1150', months: { '11': 5 } }])).status, 400);   // input VAT isn't budgetable
+  assert.equal((await put(a, [{ account: '6140', months: { '11': -5 } }])).status, 400);
+  assert.equal((await put(a, [{ account: '6140', months: { '13': 5 } }])).status, 400);
+
+  // Grid save, then CSV for more accounts (accounts not in the CSV keep their budget)
+  let y = await put(a, [{ account: '6140', months: { '11': 1000, '12': 1200 } }]);
+  assert.equal(y.status, 200);
+  y = await call('POST', '/accounting/budget/import', a, { organization_id: org._id, year: '2026', csv: 'account,oct,nov\n4110,90000,"100,000"\n6120,7000,8000' });
+  assert.equal(y.status, 201);
+  assert.deepEqual(y.body.lines.map((l: { account_code: string; total: number }) => [l.account_code, l.total]), [['4110', 190000], ['6120', 15000], ['6140', 2200]]);
+  assert.equal((await call('GET', `/accounting/budget?organization_id=${org._id}&year=2026`, c)).body.lines.length, 3); // members can read
+
+  // Actuals for November
+  await call('POST', '/accounting/revenue', a, { organization_id: org._id, month: '2026-11', account_code: '4110', net_amount: 91000, vat_amount: 6370 });
+  await call('POST', '/expenses', a, { organization_id: org._id, currency: 'THB', status: 'approved', date: '2026-11-05', category: 'Office Supplies',
+    vendor_taxid: '0107537000521', total: 1605, tax_amount: 105, payment_source: 'company', vendor_name: 'Makro' });
+
+  const p = (await call('GET', `/accounting/mma?organization_id=${org._id}&month=2026-11`, a)).body;
+  assert.deepEqual(p.budget, { revenue: 100000, opex: 9000, gop: 91000, revenue_var: -9000, opex_var: -7500, gop_var: -1500,
+    revenue_var_pct: -9, opex_var_pct: -83.3, gop_var_pct: -1.6 });
+  const row = (code: string) => p.opex.find((o: { code: string }) => o.code === code);
+  assert.deepEqual([row('6140').amount, row('6140').budget, row('6140').variance], [1500, 1000, 500]);
+  assert.deepEqual([row('6120').amount, row('6120').budget], [0, 8000]);
+
+  // Group view sums budgets
+  const g = (await call('GET', '/accounting/mma?organization_id=all&month=2026-11', a)).body;
+  assert.ok(g.budget.revenue >= 100000);
+
+  // Excel shows Budget / Variance
+  const res = await fetch(`${base}/accounting/mma.xlsx?organization_id=${org._id}&month=2026-11`, { headers: { Authorization: `Bearer ${a}` } });
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+  const s = book.getWorksheet('Summary')!;
+  assert.equal(s.getCell('E5').value, 'Budget');
+  assert.equal(s.getCell('A6').value, 'Revenue');
+  assert.equal(s.getCell('E6').value, 100000);
+  assert.equal(s.getCell('F6').value, -9000);
+  assert.equal(book.getWorksheet('Operating costs')!.getCell('H4').value, 'Budget');
+
+  // Clearing an account's year: send it with no months
+  y = await put(a, [{ account: '6120', months: {} }]);
+  assert.deepEqual(y.body.lines.map((l: { account_code: string }) => l.account_code), ['4110', '6140']);
+  const log = (await call('GET', `/accounting/audit?organization_id=${org._id}`, a)).body as { entity: string }[];
+  assert.ok(log.some((x) => x.entity === 'budget'));
+});

@@ -11,6 +11,7 @@ import { journalWorkbook } from '../accounting/journal-xlsx.js';
 import { audit } from '../accounting/periods.js';
 import { mountMma } from './mma.js';
 import { mountRevenue } from './revenue.js';
+import { mountBudget } from './budget.js';
 
 const EDITORS = ['owner', 'admin'];
 
@@ -480,6 +481,7 @@ export function accountingRouter(db: Db): Router {
 
   mountMma(r, db, { access, journal });
   mountRevenue(r, db, { access });
+  mountBudget(r, db, { access });
 
   return r;
 }

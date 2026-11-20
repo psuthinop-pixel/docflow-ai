@@ -41,7 +41,7 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
 
   // Summary
   const s = book.addWorksheet('Summary');
-  s.columns = [{ width: 44 }, { width: 18 }, { width: 18 }, { width: 18 }];
+  s.columns = [{ width: 44 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }];
   s.getCell('A1').value = `Monthly management accounts · ${who} · ${p.month}`;
   s.getCell('A1').font = { bold: true, size: 14 };
   s.getCell('A2').value = status;
@@ -51,7 +51,7 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
     : 'Revenue is not captured in DocFlow yet: this is a cost statement, not a full P&L.';
   s.getCell('A3').font = { size: 10, color: { argb: 'FF475569' } };
   const head = s.getRow(5);
-  head.values = ['', 'This month', 'Previous month', 'Same month last year'];
+  head.values = ['', 'This month', 'Previous month', 'Same month last year', ...(p.budget ? ['Budget', 'Variance'] : [])];
   head.font = { bold: true };
   head.eachCell((c) => { c.fill = HEADER_FILL; });
   const sm = p.summary;
@@ -81,9 +81,14 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
       ['RevPAR', rv.revpar, null, null],
     ] as [string, number | null, number | null, number | null][] : []),
   ];
+  const bud = p.budget;
+  const budgetOf: Record<string, [number | null, number | null]> = bud ? {
+    'Revenue': [bud.revenue, bud.revenue_var], 'Gross operating profit (GOP)': [bud.gop, bud.gop_var], 'Operating costs': [bud.opex, bud.opex_var],
+  } : {};
   lines.forEach((l, i) => {
     const row = s.getRow(6 + i);
-    row.values = l;
+    row.values = [...l, ...(budgetOf[l[0]] ?? [])];
+    [5, 6].forEach((c) => { row.getCell(c).numFmt = MONEY; });
     const isPct = l[0].includes('(%)');
     const isCount = l[0].startsWith('Room nights');
     [2, 3, 4].forEach((c) => { row.getCell(c).numFmt = isPct ? PCT : isCount ? '#,##0' : MONEY; });
@@ -110,8 +115,8 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
   }
 
   if (rv) {
-    const rs = sheet(book, 'Revenue', 'Revenue', sub, ['Account', 'Name', 'This month', 'Previous month', 'Same month LY'], [12, 36, 16, 16, 16]);
-    rows(rs, rv.by_account.map((x) => [x.code, x.name, x.amount, x.prev, x.ly]), { 3: MONEY, 4: MONEY, 5: MONEY });
+    const rs = sheet(book, 'Revenue', 'Revenue', sub, ['Account', 'Name', 'This month', 'Previous month', 'Same month LY', 'Budget', 'Variance'], [12, 36, 16, 16, 16, 16, 16]);
+    rows(rs, rv.by_account.map((x) => [x.code, x.name, x.amount, x.prev, x.ly, x.budget ?? null, x.variance ?? null]), { 3: MONEY, 4: MONEY, 5: MONEY, 6: MONEY, 7: MONEY });
     const ch = rs.getRow(rv.by_account.length + 7);
     ch.values = ['By channel', '', 'Net revenue', 'Commission', 'Room nights'];
     ch.font = { bold: true };
@@ -124,8 +129,9 @@ export function mmaWorkbook(p: Pack, who: string, commentary: CommentaryResult |
   }
 
   const opex = sheet(book, 'Operating costs', 'Operating costs by account', sub,
-    ['Account', 'Name', 'This month', 'Previous month', 'Change %', 'Same month LY', 'Share %'], [12, 36, 16, 16, 12, 16, 10]);
-  rows(opex, p.opex.map((o) => [o.code, o.name, o.amount, o.prev, o.change_pct, o.ly, o.share_pct]), { 3: MONEY, 4: MONEY, 5: PCT, 6: MONEY, 7: PCT });
+    ['Account', 'Name', 'This month', 'Previous month', 'Change %', 'Same month LY', 'Share %', 'Budget', 'Variance', 'Variance %'], [12, 36, 16, 16, 12, 16, 10, 16, 16, 12]);
+  rows(opex, p.opex.map((o) => [o.code, o.name, o.amount, o.prev, o.change_pct, o.ly, o.share_pct, o.budget ?? null, o.variance ?? null, o.variance_pct ?? null]),
+    { 3: MONEY, 4: MONEY, 5: PCT, 6: MONEY, 7: PCT, 8: MONEY, 9: MONEY, 10: PCT });
   const vend = opex.getRow(p.opex.length + 7);
   vend.values = ['Top vendors', '', 'Amount', 'Receipts'];
   vend.font = { bold: true };
