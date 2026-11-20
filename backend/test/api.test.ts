@@ -373,6 +373,13 @@ test('reports: summary by month/category/property, VAT rules, scoping', async ()
   assert.equal(pp.body[0].base_thb, 3625);
   assert.equal(pp.body[0].vat_thb, 253.75);
   assert.equal(pp.body[0].ready, true);
+  // A foreign seller billing in THB is listed only once marked service; Thai THB receipts never are
+  const thbSvc = (await add(o1._id, { status: 'confirmed', vendor_name: 'GoDaddy', date: '2026-09-21', total: 599, tax_amount: 0, category: 'Software' })).body;
+  assert.deepEqual((await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a)).body.map((x: { vendor_name: string }) => x.vendor_name), ['Figma']);
+  await call('PUT', `/expenses/${thbSvc._id}`, a, { supply_type: 'service' });
+  pp = await call('GET', `/reports/pp36?organization_id=${o1._id}&month=2026-09`, a);
+  assert.deepEqual(pp.body.map((x: { vendor_name: string; vat_thb: number; ready: boolean }) => [x.vendor_name, x.vat_thb, x.ready]), [['Figma', 253.75, true], ['GoDaddy', 41.93, true]]);
+  await call('PUT', `/expenses/${thbSvc._id}`, a, { status: 'disabled' });
   const p36 = await xl(`/reports/pp36.xlsx?organization_id=${o1._id}&month=2026-09`);
   const prow = Array.from(p36.book.getWorksheet('PP36')!.getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
   assert.equal((prow.find((r) => r[5] === 'รวม / Total')![10] as { result: number }).result, 253.75);
